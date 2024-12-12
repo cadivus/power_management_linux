@@ -4,7 +4,6 @@
 /.checked-atomic-arch-fallback.h
 /.checked-atomic-instrumented.h
 /.checked-atomic-long.h
-/.config
 /.config.old
 /.linux.tar.gz.cmd
 /.missing-syscalls.d
