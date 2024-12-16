@@ -20,7 +20,7 @@ if ! git diff --quiet || ! git diff --cached --quiet; then
 fi
 
 build_start_time=$(date +%s)
-rsync -avz --delete-during -e "ssh -J pm3@lab.os.itec.kit.edu" "$scriptdir/linux/" pm3@pm3:/unser_zeug/git/deploy_script/repo/power_management_linux/linux
+rsync -avz --delete-during -e "ssh -J pm3@lab.os.itec.kit.edu" "$scriptdir/" pm3@pm3:/unser_zeug/git/deploy_script/repo/power_management_linux
 echo "Build on pm3:"
 ssh -J pm3@lab.os.itec.kit.edu pm3@pm3 "cd /unser_zeug/git/deploy_script/repo/power_management_linux/linux && make -j20 LOCALVERSION=-$githash"
 end_time=$(date +%s)
