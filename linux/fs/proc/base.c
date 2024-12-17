@@ -628,6 +628,25 @@ static const struct limit_names lnames[RLIM_NLIMITS] = {
 	[RLIMIT_RTTIME] = {"Max realtime timeout", "us"},
 };
 
+/* Display power-draw for a process */
+static int consumed_power_status(struct seq_file *m, struct pid_namespace *ns,
+			   struct pid *pid, struct task_struct *task)
+{
+	unsigned long flags;
+
+	if (!lock_task_sighand(task, &flags))
+		return 0;
+
+	const u64 consumed_power = task->consumed_power;
+
+	unlock_task_sighand(task, &flags);
+
+	seq_printf(m, "Consumed power: %llu", consumed_power);
+	seq_putc(m, '\n');
+
+	return 0;
+}
+
 /* Display limits for a process */
 static int proc_pid_limits(struct seq_file *m, struct pid_namespace *ns,
 			   struct pid *pid, struct task_struct *task)
@@ -1250,6 +1269,63 @@ static const struct file_operations proc_oom_adj_operations = {
 	.write		= oom_adj_write,
 	.llseek		= generic_file_llseek,
 };
+
+static ssize_t proc_should_profile_power_read(struct file *file, char __user *buf,
+					size_t count, loff_t *ppos)
+{
+	struct task_struct *task = get_proc_task(file_inode(file));
+	char buffer[PROC_NUMBUF];
+	bool power_should_be_profiled;
+	size_t len;
+
+	if (!task)
+		return -ESRCH;
+	power_should_be_profiled = task->power_should_be_profiled;
+	put_task_struct(task);
+	len = snprintf(buffer, sizeof(buffer), "%d\n", power_should_be_profiled);
+	return simple_read_from_buffer(buf, count, ppos, buffer, len);
+}
+
+static ssize_t proc_should_profile_power_write(struct file *file, const char __user *buf,
+					size_t count, loff_t *ppos)
+{
+	char buffer[PROC_NUMBUF] = {};
+	bool power_should_be_profiled;
+	int err;
+
+	if (count > sizeof(buffer) - 1)
+		count = sizeof(buffer) - 1;
+	if (copy_from_user(buffer, buf, count)) {
+		err = -EFAULT;
+		goto out;
+	}
+
+	err = kstrtobool(strstrip(buffer), &power_should_be_profiled);
+	if (err)
+		goto out;
+
+	if (power_should_be_profiled != 0 && power_should_be_profiled != 1) {
+		err = -EINVAL;
+		goto out;
+	}
+
+	struct task_struct *task;
+
+	task = get_proc_task(file_inode(file));
+
+	task->power_should_be_profiled = power_should_be_profiled;
+
+	out:
+		return err < 0 ? err : count;
+}
+
+static const struct file_operations proc_should_profile_power_operations = {
+	.read		= proc_should_profile_power_read,
+	.write		= proc_should_profile_power_write,
+	.llseek		= default_llseek,
+};
+
+
 
 static ssize_t oom_score_adj_read(struct file *file, char __user *buf,
 					size_t count, loff_t *ppos)
@@ -3308,7 +3384,9 @@ static const struct pid_entry tgid_base_stuff[] = {
 	DIR("fd",         S_IRUSR|S_IXUSR, proc_fd_inode_operations, proc_fd_operations),
 	DIR("map_files",  S_IRUSR|S_IXUSR, proc_map_files_inode_operations, proc_map_files_operations),
 	DIR("fdinfo",     S_IRUGO|S_IXUGO, proc_fdinfo_inode_operations, proc_fdinfo_operations),
-	DIR("ns",	  S_IRUSR|S_IXUGO, proc_ns_dir_inode_operations, proc_ns_dir_operations),
+	DIR("ns",	  	  S_IRUSR|S_IXUGO, proc_ns_dir_inode_operations, proc_ns_dir_operations),
+    ONE("consumed_power", S_IRUGO, consumed_power_status),
+	REG("should_profile_power", S_IRUGO, proc_should_profile_power_operations),
 #ifdef CONFIG_NET
 	DIR("net",        S_IRUGO|S_IXUGO, proc_net_inode_operations, proc_net_operations),
 #endif
