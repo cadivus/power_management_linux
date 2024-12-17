@@ -13,6 +13,9 @@ start_time=$(date +%s)
 # Will be the path of this script
 scriptdir=$(cd $(dirname $0); pwd -P)
 
+# For always booting the latest.
+buildtime=$(printf "%06d" $(( ($(date +%s) - $(date -d '2024-12-17 10:00:00' +%s)) / 60 / 10 )))
+
 githash=$(git rev-parse --short HEAD)
 if ! git diff --quiet || ! git diff --cached --quiet; then
     # Add -dirty if some changes are not commited
@@ -22,7 +25,7 @@ fi
 build_start_time=$(date +%s)
 rsync -avz --delete-during -e "ssh -J pm3@lab.os.itec.kit.edu" "$scriptdir/" pm3@pm3:/unser_zeug/git/deploy_script/repo/power_management_linux
 echo "Build on pm3:"
-ssh -J pm3@lab.os.itec.kit.edu pm3@pm3 "cd /unser_zeug/git/deploy_script/repo/power_management_linux/linux && make -j20 LOCALVERSION=-$githash"
+ssh -J pm3@lab.os.itec.kit.edu pm3@pm3 "cd /unser_zeug/git/deploy_script/repo/power_management_linux/linux && make -j20 LOCALVERSION=-$buildtime-$githash"
 end_time=$(date +%s)
 runtime=$((end_time - build_start_time))
 minutes=$((runtime / 60))
@@ -31,10 +34,10 @@ echo "Build runtime: ${minutes} minutes and ${seconds} seconds"
 
 echo ""
 echo "Install modules on pm3 (root password will be autotyped):"
-ssh -J pm3@lab.os.itec.kit.edu pm3@pm3 "bash -c 'cd /unser_zeug/git/deploy_script/repo/power_management_linux/linux && sudo -S <<< \"pm3\" make modules_install -j20 LOCALVERSION=-$githash'"
+ssh -J pm3@lab.os.itec.kit.edu pm3@pm3 "bash -c 'cd /unser_zeug/git/deploy_script/repo/power_management_linux/linux && sudo -S <<< \"pm3\" make modules_install -j20 LOCALVERSION=-$buildtime-$githash'"
 echo ""
 echo "Install kernel on pm3 (root password will be autotyped):"
-ssh -J pm3@lab.os.itec.kit.edu pm3@pm3 "bash -c 'cd /unser_zeug/git/deploy_script/repo/power_management_linux/linux && sudo -S <<< \"pm3\" make install -j20 LOCALVERSION=-$githash'"
+ssh -J pm3@lab.os.itec.kit.edu pm3@pm3 "bash -c 'cd /unser_zeug/git/deploy_script/repo/power_management_linux/linux && sudo -S <<< \"pm3\" make install -j20 LOCALVERSION=-$buildtime-$githash'"
 
 echo "Copy stuff we need to build modules"
 rsync -avz --delete-during -e "ssh -J pm3@lab.os.itec.kit.edu" pm3@pm3:/unser_zeug/git/deploy_script/repo/power_management_linux/linux/arch/x86/include/generated/ "$scriptdir/linux/arch/x86/include/generated"
