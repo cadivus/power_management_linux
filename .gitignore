@@ -13,4 +13,14 @@
 .idea/
 .vscode/
 .DS_Store
+
+# Built stuff
 /linux/include/config/
+/linux/Module.symvers
+*.o
+*.cmd
+generated
+/linux/scripts/dtc/dtc-lexer.lex.c
+/linux/scripts/dtc/dtc-parser.tab.c
+/linux/scripts/dtc/dtc-parser.tab.h
+/linux/scripts/mod/devicetable-offsets.s

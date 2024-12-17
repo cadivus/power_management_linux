@@ -35,8 +35,23 @@ ssh -J pm3@lab.os.itec.kit.edu pm3@pm3 "bash -c 'cd /unser_zeug/git/deploy_scrip
 echo ""
 echo "Install kernel on pm3 (root password will be autotyped):"
 ssh -J pm3@lab.os.itec.kit.edu pm3@pm3 "bash -c 'cd /unser_zeug/git/deploy_script/repo/power_management_linux/linux && sudo -S <<< \"pm3\" make install -j20 LOCALVERSION=-$githash'"
-echo "Done, you can now reboot the machine."
 
+echo "Copy stuff we need to build modules"
+rsync -avz --delete-during -e "ssh -J pm3@lab.os.itec.kit.edu" pm3@pm3:/unser_zeug/git/deploy_script/repo/power_management_linux/linux/arch/x86/include/generated/ "$scriptdir/linux/arch/x86/include/generated"
+rsync -avz --delete-during -e "ssh -J pm3@lab.os.itec.kit.edu" pm3@pm3:/unser_zeug/git/deploy_script/repo/power_management_linux/linux/include/generated/ "$scriptdir/linux/include/generated"
+rsync -avz --delete-during -e "ssh -J pm3@lab.os.itec.kit.edu" pm3@pm3:/unser_zeug/git/deploy_script/repo/power_management_linux/linux/tools/include/generated/ "$scriptdir/linux/tools/include/generated"
+rsync -avz --delete-during -e "ssh -J pm3@lab.os.itec.kit.edu" pm3@pm3:/unser_zeug/git/deploy_script/repo/power_management_linux/linux/tools/objtool/ "$scriptdir/linux/tools/objtool"
+rsync -avz --delete-during -e "ssh -J pm3@lab.os.itec.kit.edu" pm3@pm3:/unser_zeug/git/deploy_script/repo/power_management_linux/linux/scripts/ "$scriptdir/linux/scripts"
+rsync -avz --delete-during -e "ssh -J pm3@lab.os.itec.kit.edu" pm3@pm3:/unser_zeug/git/deploy_script/repo/power_management_linux/linux/Module.symvers "$scriptdir/linux/Module.symvers"
+rm -R $scriptdir/linux/tools/objtool/libsubcmd
+rm -f $scriptdir/linux/tools/objtool/*.o
+rm -f $scriptdir/linux/tools/objtool/.*.o.cmd
+rm -f $scriptdir/linux/scripts/*.o
+rm -f $scriptdir/linux/scripts/.*.cmd
+rm -f $scriptdir/linux/scripts/*/*.o
+rm -f $scriptdir/linux/scripts/*/.*.cmd
+
+echo "Done, you can now reboot the machine."
 end_time=$(date +%s)
 runtime=$((end_time - start_time))
 minutes=$((runtime / 60))
