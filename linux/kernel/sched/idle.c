@@ -415,8 +415,26 @@ void play_idle_precise(u64 duration_ns, u64 latency_ns)
 }
 EXPORT_SYMBOL_GPL(play_idle_precise);
 
+/* (Power Management Lab)
+ *
+ * Tell the CPU core to enable perf counters,
+ * and which ones to track.
+ * This function must not only be called on startup,
+ * but also subsequent wakes
+ * (cpu_startup_entry() should take care of this).
+ */
+static void
+install_power_performance_counters(void)
+{
+	u64 proc_id = smp_processor_id();
+	printk("PML: Installing power performance counters on processor %llu.\n", proc_id);
+	wrmsrl(0x38f, 0x7000000fful);
+	wrmsrl(0x186, 0x004300c0);
+}
+
 void cpu_startup_entry(enum cpuhp_state state)
 {
+	install_power_performance_counters();
 	current->flags |= PF_IDLE;
 	arch_cpu_idle_prepare();
 	cpuhp_online_idle(state);
