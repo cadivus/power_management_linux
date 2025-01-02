@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 echo "Checking CPU utilization on pm3 (other builds)..."
 if ! ssh -J pm3@lab.os.itec.kit.edu pm3@pm3 "mpstat 1 3 | tail -n 1 | awk '{if (100 - \$12 > 10) exit 1; else exit 0;}'"; then
