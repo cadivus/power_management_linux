@@ -73,8 +73,6 @@
 #include <trace/events/power.h>
 #include <trace/events/sched.h>
 
-#include <asm/msr.h> /* to read performance counters (Power Management Lab) */
-
 #include "../workqueue_internal.h"
 
 struct rq;

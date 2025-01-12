@@ -67,8 +67,6 @@
 #include <linux/wait_api.h>
 #include <linux/workqueue_api.h>
 
-#include <linux/printk.h>
-
 #ifdef CONFIG_PREEMPT_DYNAMIC
 # ifdef CONFIG_GENERIC_ENTRY
 #  include <linux/entry-common.h>
@@ -5283,17 +5281,6 @@ context_switch(struct rq *rq, struct task_struct *prev,
 	 * one hypercall.
 	 */
 	arch_start_context_switch(prev);
-
-	/* (Power Management Lab)
-	 *
-	 * If we switch away from a userspace task, update its
-	 * performance measurements before switching.
-	 */
-	if (prev->mm) { // from user
-		u64 count;
-		rdmsrl(0xc1, count);
-		prev->consumed_power = count;
-	}
 
 	/*
 	 * kernel -> kernel   lazy + transfer active
