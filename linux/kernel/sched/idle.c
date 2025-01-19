@@ -428,8 +428,8 @@ install_power_performance_counters(void)
 {
 	u64 proc_id = smp_processor_id();
 	printk("PML: Installing power performance counters on processor %llu.\n", proc_id);
-	wrmsrl(0x38f, 0x7000000fful);
-	wrmsrl(0x186, 0x004300c0);
+	wrmsrl(MSR_CORE_PERF_GLOBAL_CTRL, 0x7000000fful);
+	wrmsrl(MSR_P6_EVENTSEL0,          0x004300c0);
 }
 
 void cpu_startup_entry(enum cpuhp_state state)
