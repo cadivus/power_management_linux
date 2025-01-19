@@ -1174,6 +1174,13 @@ static struct task_struct *dup_task_struct(struct task_struct *orig, int node)
 	kmsan_task_create(tsk);
 	kmap_local_fork(tsk);
 
+	/* (Power Management Lab)
+	 * task_struct contents are copied on fork.
+	 * Since we want independent measurements for all tasks,
+	 * we have to re-initialize our counters with 0 here.
+	 */
+	tsk->consumed_power = 0;
+
 #ifdef CONFIG_FAULT_INJECTION
 	tsk->fail_nth = 0;
 #endif
