@@ -1592,6 +1592,7 @@ struct task_struct {
 	struct user_event_mm		*user_event_mm;
 #endif
 
+	/* (Power Management Lab) */
 	u64							consumed_power;
 	bool						power_should_be_profiled;
 	/*

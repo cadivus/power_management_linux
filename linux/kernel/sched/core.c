@@ -5316,12 +5316,9 @@ context_switch(struct rq *rq, struct task_struct *prev,
 
 	/* (Power Management Lab)
 	 *
-	 * If we switch away from a userspace task, update its
-	 * performance measurements before switching.
-	 *
-	 * TODO Don't count the power that was used up by kernel tasks!
+	 * Determine event counter delta over time slice and update accordingly.
 	 */
-	if (prev->mm) { // from user
+	{
 		u64 end_count;
 		rdmsrl(MSR_P6_PERFCTR0, end_count);
 
@@ -5329,8 +5326,13 @@ context_switch(struct rq *rq, struct task_struct *prev,
 		get_cpu_var(power_events_checkpoint) = end_count;
 		put_cpu_var(power_events_checkpoint);
 
-		u64 difference = end_count - start_count;
-		prev->consumed_power += difference;
+		/* If we switch away from a userspace task, update its
+		 * performance measurements before switching.
+		 */
+		if (prev->mm) { // from user
+			u64 difference = end_count - start_count;
+			prev->consumed_power += difference;
+		}
 	}
 
 	/*
