@@ -77,6 +77,9 @@
 
 #include "../workqueue_internal.h"
 
+/* Defined in sched/core.c (Power Management Lab) */
+void install_power_performance_counters(void);
+
 struct rq;
 struct cfs_rq;
 struct rt_rq;
