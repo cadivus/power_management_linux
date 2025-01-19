@@ -5291,7 +5291,7 @@ context_switch(struct rq *rq, struct task_struct *prev,
 	 */
 	if (prev->mm) { // from user
 		u64 count;
-		rdmsrl(0xc1, count);
+		rdmsrl(MSR_P6_PERFCTR0, count);
 		prev->consumed_power = count;
 	}
 
