@@ -2,7 +2,13 @@
 
 import subprocess
 import re
+import time
 from get_cpu_topology import get_big_cores, get_little_cores, supports_big_little
+
+
+def read_energy():
+    with open("/sys/class/powercap/intel-rapl:0/energy_uj", "r") as f:
+        return int(f.read().strip())
 
 
 def run_perf_test(command, perf_counters, little_cores=False):
@@ -14,10 +20,23 @@ def run_perf_test(command, perf_counters, little_cores=False):
     perf_cmd = f"perf stat -e {','.join(perf_counters)} {command}"
     full_cmd = f"{taskset_cmd} {perf_cmd}"
 
+    start_energy = read_energy()
+    start_time = time.time()
+
     result = subprocess.run(full_cmd, shell=True, capture_output=True, text=True)
     output = result.stderr
 
-    return parse_perf_output(output, perf_counters, little_cores)
+    end_energy = read_energy()
+    end_time = time.time()
+
+    consumption_joules = (end_energy - start_energy) / 1_000_000
+    runtime_seconds = end_time - start_time
+    average_power_watt = consumption_joules / runtime_seconds if runtime_seconds > 0 else float("nan")
+
+    perf_results = parse_perf_output(output, perf_counters, little_cores)
+    perf_results = {**{'rapl_power_consumption_in_watt': round(average_power_watt, 2)}, **perf_results}
+
+    return perf_results
 
 
 def parse_perf_output(output, perf_counters, little_cores):
