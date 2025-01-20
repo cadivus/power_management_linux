@@ -3,8 +3,10 @@
 import subprocess
 import re
 import time
-from get_cpu_topology import get_big_cores, get_little_cores, supports_big_little
-
+try:
+    from get_cpu_topology import get_big_cores, get_little_cores, supports_big_little
+except ImportError:
+    from .get_cpu_topology import get_big_cores, get_little_cores, supports_big_little
 
 def read_energy():
     with open("/sys/class/powercap/intel-rapl:0/energy_uj", "r") as f:
