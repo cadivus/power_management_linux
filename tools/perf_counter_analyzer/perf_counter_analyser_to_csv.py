@@ -30,7 +30,7 @@ def main(little_cores):
     # Iterate through performance counters in chunks of 4
     for i in range(0, len(all_perf_counters), 4):
         batch_counters = all_perf_counters[i:i + 4]
-        print(f"Running iteration {i // 4 + 1}")
+        print(f"Running iteration {i // 4 + 1} / {len(all_perf_counters) // 4 + (1 if len(all_perf_counters) % 4 != 0 else 0)}")
 
         # Run idle test
         command_idle = "sleep 10s"
