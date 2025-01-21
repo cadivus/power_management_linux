@@ -73,7 +73,7 @@ def parse_perf_output(output, perf_counters, little_cores):
             if counter in perf_counters:
                 try:
                     if value in ('<not counted>', '<not supported>'):
-                        data[counter] = float("nan")
+                        data[counter] = value
                     else:
                         data[counter] = int(value.replace(',', '').replace('.', ''))
                 except ValueError:
