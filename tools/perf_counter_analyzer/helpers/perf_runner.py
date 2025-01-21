@@ -3,6 +3,7 @@
 import subprocess
 import re
 import time
+import math
 try:
     from get_cpu_topology import get_big_cores, get_little_cores, supports_big_little
 except ImportError:
@@ -36,13 +37,13 @@ def run_perf_test(command, perf_counters, little_cores=False):
     runtime_seconds = end_time - start_time
     average_power_watt = consumption_joules / runtime_seconds if runtime_seconds > 0 else float("nan")
 
-    perf_results = parse_perf_output(output, perf_counters, little_cores)
+    perf_results = parse_perf_output(output, command, perf_counters, little_cores)
     perf_results = {**{'rapl_power_consumption_in_watt': round(average_power_watt, 2)}, **perf_results}
 
     return perf_results
 
 
-def parse_perf_output(output, perf_counters, little_cores):
+def parse_perf_output(output, command, perf_counters, little_cores):
     data = {}
     lines = output.splitlines()
     parsing = False
@@ -90,6 +91,34 @@ def parse_perf_output(output, perf_counters, little_cores):
     for counter in perf_counters:
         if counter not in data:
             data[counter] = float("nan")
+
+    all_nan = True
+    for counter in perf_counters:
+        try:
+            if not math.isnan(data[counter]):
+                all_nan = False
+        except Exception:
+            all_nan = False
+
+    all_watt = 0
+    if all_nan and len(perf_counters) > 1:
+        print("   ! Run every counter single, the group seems not to work")
+
+        start_energy = read_energy()
+        start_time = time.time()
+
+        for counter in perf_counters:
+            again = run_perf_test(command, [counter], little_cores)
+            all_watt += again['rapl_power_consumption_in_watt']
+            data[counter] = again[counter]
+
+        end_energy = read_energy()
+        end_time = time.time()
+        consumption_joules = (end_energy - start_energy) / 1_000_000
+        runtime_seconds = end_time - start_time
+        average_power_watt = consumption_joules / runtime_seconds if runtime_seconds > 0 else float("nan")
+
+        data['rapl_power_consumption_in_watt'] = round(average_power_watt, 2)
 
     return data
 
