@@ -56,7 +56,7 @@ def parse_perf_output(output, command, perf_counters, little_cores):
         if not parsing:
             continue
 
-        match = re.match(r"\s*([\d,.]+|<not counted>|<not supported>)\s+([\w/_-]+)", line)
+        match = re.match(r"\s*([0-9.,<not counted><not supported>]*)\s+([\w/_-]+)", line)
         if match:
             value, counter = match.groups()
 
@@ -73,16 +73,20 @@ def parse_perf_output(output, command, perf_counters, little_cores):
 
             if counter in perf_counters:
                 try:
-                    if value in ('<not counted>', '<not supported>'):
-                        data[counter] = value
+                    if '<not counted>' in value:
+                        data[counter] = '<not counted>'
+                    elif '<not supported>' in value:
+                        data[counter] = '<not supported>'
                     else:
                         data[counter] = int(value.replace(',', '').replace('.', ''))
                 except ValueError:
                     data[counter] = value.strip()
             elif (counter + "/") in perf_counters:
                 try:
-                    if value in ('<not counted>', '<not supported>'):
-                        data[(counter + "/")] = value
+                    if '<not counted>' in value:
+                        data[(counter + "/")] = '<not counted>'
+                    elif '<not supported>' in value:
+                        data[(counter + "/")] = '<not supported>'
                     else:
                         data[(counter + "/")] = int(value.replace(',', '').replace('.', ''))
                 except ValueError:
