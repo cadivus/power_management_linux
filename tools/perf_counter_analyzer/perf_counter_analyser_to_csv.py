@@ -13,6 +13,7 @@ def main(little_cores):
     # Get performance counters
     perf_counters_map = get_perf_counters()
     all_perf_counters = sum(perf_counters_map.values(), [])  # Concatenate all lists to one list
+    all_perf_counters = list(dict.fromkeys(all_perf_counters))  # Remove duplicates
 
     # Prepare CSV file
     prefix = "LITTLE" if little_cores else "BIG"
