@@ -8,6 +8,7 @@ try:
 except ImportError:
     from .get_cpu_topology import get_big_cores, get_little_cores, supports_big_little
 
+
 def read_energy():
     with open("/sys/class/powercap/intel-rapl:0/energy_uj", "r") as f:
         return int(f.read().strip())
@@ -62,10 +63,13 @@ def parse_perf_output(output, perf_counters, little_cores):
             else:
                 counter = re.sub(r"cpu_core/|:u/", "", counter)
             if counter in perf_counters:
-                if '<not counted>' in value or '<not supported>' in value:
-                    data[counter] = float("nan")
-                else:
-                    data[counter] = int(value.replace(',', '').replace('.', ''))
+                try:
+                    if '<not counted>' in value or '<not supported>' in value:
+                        data[counter] = float("nan")
+                    else:
+                        data[counter] = int(value.replace(',', '').replace('.', ''))
+                except ValueError:
+                    data[counter] = value.strip()
 
     for counter in perf_counters:
         if counter not in data:
