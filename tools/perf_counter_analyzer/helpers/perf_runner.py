@@ -78,6 +78,14 @@ def parse_perf_output(output, perf_counters, little_cores):
                         data[counter] = int(value.replace(',', '').replace('.', ''))
                 except ValueError:
                     data[counter] = value.strip()
+            elif (counter + "/") in perf_counters:
+                try:
+                    if value in ('<not counted>', '<not supported>'):
+                        data[(counter + "/")] = value
+                    else:
+                        data[(counter + "/")] = int(value.replace(',', '').replace('.', ''))
+                except ValueError:
+                    data[(counter + "/")] = value.strip()
 
     for counter in perf_counters:
         if counter not in data:
