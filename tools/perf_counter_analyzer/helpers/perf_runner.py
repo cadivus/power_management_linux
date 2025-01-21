@@ -55,16 +55,24 @@ def parse_perf_output(output, perf_counters, little_cores):
         if not parsing:
             continue
 
-        match = re.match(r"\s*([0-9.,<not counted><not supported>]*)\s+([\w/_-]+)", line)
+        match = re.match(r"\s*([\d,.]+|<not counted>|<not supported>)\s+([\w/_-]+)", line)
         if match:
             value, counter = match.groups()
+
+            # Yes, this is ugly
+            counter = counter.strip() + "EEN--NnDDDDD"
+            counter = re.sub(":u/EEN--NnDDDDD", "", counter)
+            counter = re.sub("/EEN--NnDDDDD", "", counter)
+            counter = re.sub("EEN--NnDDDDD", "", counter)
+
             if little_cores:
-                counter = re.sub(r"cpu_atom/|:u/", "", counter)
+                counter = re.sub("cpu_atom/", "", counter)
             else:
-                counter = re.sub(r"cpu_core/|:u/", "", counter)
+                counter = re.sub("cpu_core/", "", counter)
+
             if counter in perf_counters:
                 try:
-                    if '<not counted>' in value or '<not supported>' in value:
+                    if value in ('<not counted>', '<not supported>'):
                         data[counter] = float("nan")
                     else:
                         data[counter] = int(value.replace(',', '').replace('.', ''))
