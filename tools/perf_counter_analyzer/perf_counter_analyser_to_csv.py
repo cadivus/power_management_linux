@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 
 import csv
-import os
-import sys
 import argparse
 from datetime import datetime
+import sys
+import os
+
+top_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+sys.path.append(top_dir)
 from helpers.get_perf_counters import get_perf_counters
 from helpers.perf_runner import run_perf_test
 
