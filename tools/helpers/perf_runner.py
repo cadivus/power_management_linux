@@ -37,8 +37,13 @@ def run_perf_test(command, perf_counters, little_cores=False):
     runtime_seconds = end_time - start_time
     average_power_watt = consumption_joules / runtime_seconds if runtime_seconds > 0 else float("nan")
 
-    perf_results = parse_perf_output(output, command, perf_counters, little_cores)
-    perf_results = {**{'rapl_power_consumption_in_watt': round(average_power_watt, 2)}, **perf_results}
+    perf_results = {}
+    for counter in perf_counters:
+        perf_results[f"{counter}___runtime"] = end_time - start_time
+
+    perf_results.update(parse_perf_output(output, command, perf_counters, little_cores))
+    if 'rapl_power_consumption_in_watt' not in perf_results:
+        perf_results['rapl_power_consumption_in_watt'] = round(average_power_watt, 2)
 
     return perf_results
 
@@ -115,6 +120,7 @@ def parse_perf_output(output, command, perf_counters, little_cores):
             again = run_perf_test(command, [counter], little_cores)
             all_watt += again['rapl_power_consumption_in_watt']
             data[counter] = again[counter]
+            data[f"{counter}___runtime"] = again[f"{counter}___runtime"]
 
         end_energy = read_energy()
         end_time = time.time()
