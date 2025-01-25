@@ -1,4 +1,5 @@
 sleep 10s
+sum_up_benchmark
 stress-ng --cpu 2 --cpu-method all --timeout 10s
 stress-ng --cpu 2 --cpu-method ackermann --timeout 10s
 stress-ng --cpu 2 --cpu-method apery --timeout 10s
