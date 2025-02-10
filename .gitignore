@@ -28,3 +28,5 @@ generated
 /linux/scripts/kconfig/parser.tab.c
 /linux/scripts/kconfig/parser.tab.h
 /tools/benchmarks/sum_up_benchmark/.tmp-automatic-created-result
+
+build-log.txt
