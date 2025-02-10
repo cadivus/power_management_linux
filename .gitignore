@@ -27,3 +27,5 @@ generated
 /linux/scripts/kconfig/lexer.lex.c
 /linux/scripts/kconfig/parser.tab.c
 /linux/scripts/kconfig/parser.tab.h
+
+build-log.txt
