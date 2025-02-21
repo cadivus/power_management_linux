@@ -628,7 +628,10 @@ static const struct limit_names lnames[RLIM_NLIMITS] = {
 	[RLIMIT_RTTIME] = {"Max realtime timeout", "us"},
 };
 
-/* Display power-draw for a process */
+/* (Power Management Lab)
+ *
+ * Display the estimated power draw of a process.
+ */
 static int consumed_power_status(struct seq_file *m, struct pid_namespace *ns,
 			   struct pid *pid, struct task_struct *task)
 {
@@ -637,7 +640,7 @@ static int consumed_power_status(struct seq_file *m, struct pid_namespace *ns,
 	if (!lock_task_sighand(task, &flags))
 		return 0;
 
-	const u64 consumed_power = task->consumed_power;
+	const u64 consumed_power = pmlab_power_consumption_of_task(task);
 
 	unlock_task_sighand(task, &flags);
 
@@ -1270,6 +1273,7 @@ static const struct file_operations proc_oom_adj_operations = {
 	.llseek		= generic_file_llseek,
 };
 
+#if 0
 static ssize_t proc_should_profile_power_read(struct file *file, char __user *buf,
 					size_t count, loff_t *ppos)
 {
@@ -1324,6 +1328,7 @@ static const struct file_operations proc_should_profile_power_operations = {
 	.write		= proc_should_profile_power_write,
 	.llseek		= default_llseek,
 };
+#endif
 
 
 
@@ -3386,7 +3391,9 @@ static const struct pid_entry tgid_base_stuff[] = {
 	DIR("fdinfo",     S_IRUGO|S_IXUGO, proc_fdinfo_inode_operations, proc_fdinfo_operations),
 	DIR("ns",	  	  S_IRUSR|S_IXUGO, proc_ns_dir_inode_operations, proc_ns_dir_operations),
     ONE("consumed_power", S_IRUGO, consumed_power_status),
+#if 0
 	REG("should_profile_power", S_IRUGO, proc_should_profile_power_operations),
+#endif
 #ifdef CONFIG_NET
 	DIR("net",        S_IRUGO|S_IXUGO, proc_net_inode_operations, proc_net_operations),
 #endif

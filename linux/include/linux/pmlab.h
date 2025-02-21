@@ -4,22 +4,27 @@
 #define _KERNEL_POWER_MANAGEMENT_LAB_H
 
 #include <linux/types.h>
+#include <linux/spinlock_types.h>
 
 struct task_struct; // defined externally
 
-#define EM_MAX_SAMPLES 16
+#define MAX_ENERGY_SAMPLES 16
 
-struct em_sample {
-	u64 time_end;
-	u64 time_delta;
-	u64 ctr_deltas[5];
+struct energy_sample {
+	u64 scaled_value;
+	//u64 time_end;
+	//u64 time_delta;
+	//u64 ctr_deltas[5];
 };
 
 struct energy_model {
-	/* Ring Buffer of samples */
-	struct em_sample samples[EM_MAX_SAMPLES];
-	int first_sample;
-	int num_samples;
+	spinlock_t lock; // protects the entire struct
+	u64        power;
+
+	/* ring buffer of samples */
+	struct energy_sample samples[MAX_ENERGY_SAMPLES];
+	int                  first_sample;
+	int                  num_samples;
 };
 
  /* task_struct contents are copied on fork.
@@ -41,5 +46,9 @@ void pmlab_install_performance_counters(void);
  * This function is called from context_switch() in sched/core.c
  */
 void pmlab_update_after_timeslice(struct task_struct *prev);
+
+/* Returns the estimated power consumption of the given task.
+ */
+u64  pmlab_power_consumption_of_task(struct task_struct *tsk);
 
 #endif
