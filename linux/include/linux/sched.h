@@ -775,6 +775,24 @@ struct kmap_ctrl {
 #endif
 };
 
+/* (Power Management Lab)
+ */
+
+#define EM_MAX_SAMPLES 16
+
+struct em_sample {
+	u64 time_end;
+	u64 time_delta;
+	u64 ctr_deltas[5];
+};
+
+struct energy_model {
+	/* Ring Buffer of samples */
+	struct em_sample samples[EM_MAX_SAMPLES];
+	int first_sample;
+	int num_samples;
+};
+
 struct task_struct {
 #ifdef CONFIG_THREAD_INFO_IN_TASK
 	/*
