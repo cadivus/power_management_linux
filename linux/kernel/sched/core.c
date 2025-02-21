@@ -67,8 +67,6 @@
 #include <linux/wait_api.h>
 #include <linux/workqueue_api.h>
 
-#include <linux/printk.h>
-
 #ifdef CONFIG_PREEMPT_DYNAMIC
 # ifdef CONFIG_GENERIC_ENTRY
 #  include <linux/entry-common.h>
@@ -5268,36 +5266,6 @@ asmlinkage __visible void schedule_tail(struct task_struct *prev)
 	calculate_sigpending();
 }
 
-/* (Power Management Lab)
- * We use this variable to store the last known counter value on this CPU.
- */
-DEFINE_PER_CPU(u64, power_events_checkpoint);
-
-/* (Power Management Lab)
- *
- * Tell the CPU core to enable perf counters,
- * and which ones to track.
- * This function must not only be called on startup,
- * but also subsequent wakes
- * (cpu_startup_entry() should take care of this).
- *
- * This function is called from cpu_startup_entry() in sched/idle.c
- */
-void
-install_power_performance_counters(void)
-{
-	u64 proc_id = smp_processor_id();
-	printk("PML: Installing power performance counters on processor %llu.\n", proc_id);
-	wrmsrl(MSR_CORE_PERF_GLOBAL_CTRL, 0x7000000fful);
-	wrmsrl(MSR_P6_EVNTSEL0, 0x004300c0);
-
-	u64 base_count;
-	rdmsrl(MSR_P6_PERFCTR0, base_count);
-
-	get_cpu_var(power_events_checkpoint) = base_count;
-	put_cpu_var(power_events_checkpoint);
-}
-
 /*
  * context_switch - switch to the new MM and the new thread's register state.
  */
@@ -5314,26 +5282,7 @@ context_switch(struct rq *rq, struct task_struct *prev,
 	 */
 	arch_start_context_switch(prev);
 
-	/* (Power Management Lab)
-	 *
-	 * Determine event counter delta over time slice and update accordingly.
-	 */
-	{
-		u64 end_count;
-		rdmsrl(MSR_P6_PERFCTR0, end_count);
-
-		u64 start_count = get_cpu_var(power_events_checkpoint);
-		get_cpu_var(power_events_checkpoint) = end_count;
-		put_cpu_var(power_events_checkpoint);
-
-		/* If we switch away from a userspace task, update its
-		 * performance measurements before switching.
-		 */
-		if (prev->mm) { // from user
-			u64 difference = end_count - start_count;
-			prev->consumed_power += difference;
-		}
-	}
+	pmlab_update_after_timeslice(prev);
 
 	/*
 	 * kernel -> kernel   lazy + transfer active

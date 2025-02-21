@@ -36,10 +36,6 @@
 #include <linux/sysrq.h>
 #include <linux/percpu-rwsem.h>
 
-#include <asm/msr.h> // Needed to read Performance Counters on process switch (Power Management Lab)
-#include <linux/printk.h>
-#include <linux/smp.h>
-
 #include <uapi/linux/sched/types.h>
 
 #include "sched.h"
