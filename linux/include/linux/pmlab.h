@@ -11,15 +11,15 @@ struct task_struct; // defined externally
 #define MAX_ENERGY_SAMPLES 16
 
 struct energy_sample {
-	u64 scaled_value;
-	//u64 time_end;
-	//u64 time_delta;
-	//u64 ctr_deltas[5];
+	u64 energy;
+	u64 duration;
 };
 
 struct energy_model {
 	spinlock_t lock; // protects the entire struct
-	u64        power;
+
+	u64 total_energy;
+	u64 total_duration;
 
 	/* ring buffer of samples */
 	struct energy_sample samples[MAX_ENERGY_SAMPLES];
