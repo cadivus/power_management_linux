@@ -10,8 +10,18 @@
 #include <asm/msr.h> // Needed to access performance counters through MSRs
 //#include <linux/pmlab.h> // Included in linux/sched.h
 
-DEFINE_PER_CPU(u64, pmsample_start_count);
-DEFINE_PER_CPU(u64, pmsample_start_time);
+#define NUM_ENERGY_COUNTERS 1
+
+const s64 energy_model_factors[NUM_ENERGY_COUNTERS] = {
+	1000
+};
+
+struct measurement {
+	u64 time;
+	u64 counters[NUM_ENERGY_COUNTERS];
+};
+
+DEFINE_PER_CPU(struct measurement, pmlab_latest);
 
 /* Push a new sample onto the ring buffer, and update the total estimate accordingly.
  * em->lock must be held when calling this function.
@@ -59,6 +69,27 @@ drop_energy_sample(struct energy_model *em)
 	em->num_samples--;
 }
 
+static void
+conduct_measurement(struct measurement *mea)
+{
+	mea->time = ktime_get_ns();
+	rdmsrl(MSR_P6_PERFCTR0, mea->counters[0]);
+}
+
+static u64
+evaluate_energy_model(const struct measurement *start, const struct measurement *end)
+{
+	s64 energy_sum = 0;
+	for (unsigned i = 0; i < NUM_ENERGY_COUNTERS; i++) {
+		// Unsigned differentiation handles counter wrap-around
+		u64 delta = end->counters[i] - start->counters[i];
+		// Signed dot product allows for negative factors
+		energy_sum += energy_model_factors[i] * (s64)delta;
+	}
+	// Total sum should not be negative, even if some product are
+	return energy_sum < 0 ? 0 : (u64)energy_sum;
+}
+
 void
 pmlab_reset_task_struct(struct task_struct *tsk)
 {
@@ -75,45 +106,28 @@ pmlab_install_performance_counters(void)
 	wrmsrl(MSR_CORE_PERF_GLOBAL_CTRL, 0x7000000fful);
 	wrmsrl(MSR_P6_EVNTSEL0, 0x004300c0);
 
-	u64 start_count;
-	rdmsrl(MSR_P6_PERFCTR0, start_count);
-
-	u64 start_time = ktime_get_ns();
-
-	get_cpu_var(pmsample_start_count) = start_count;
-	put_cpu_var(pmsample_start_count);
-
-	get_cpu_var(pmsample_start_time) = start_time;
-	put_cpu_var(pmsample_start_time);
+	struct measurement *latest = &get_cpu_var(pmlab_latest);
+	conduct_measurement(latest);
+	put_cpu_var(pmlab_latest);
 }
 
 void
 pmlab_update_after_timeslice(struct task_struct *prev)
 {
-	u64 end_count;
-	rdmsrl(MSR_P6_PERFCTR0, end_count);
+	struct measurement *latest = &get_cpu_var(pmlab_latest);
+	struct measurement start = *latest;
+	conduct_measurement(latest);
 
-	u64 end_time = ktime_get_ns();
+	struct energy_sample sample;
+	sample.duration = latest->time - start.time;
+	sample.energy   = evaluate_energy_model(&start, latest);
 
-	u64 start_count = get_cpu_var(pmsample_start_count);
-	get_cpu_var(pmsample_start_count) = end_count;
-	put_cpu_var(pmsample_start_count);
-
-	u64 start_time = get_cpu_var(pmsample_start_time);
-	get_cpu_var(pmsample_start_time) = end_time;
-	put_cpu_var(pmsample_start_time);
-
-	u64 delta_count = end_count - start_count;
-	u64 delta_time  = end_time  - start_time;
+	put_cpu_var(pmlab_latest);
 
 	struct energy_model *em = &prev->energy_model;
 	unsigned long cpu_flags;
 	spin_lock_irqsave(&em->lock, cpu_flags);
 
-	struct energy_sample sample = {
-		.energy   = delta_count,
-		.duration = delta_time
-	};
 	push_energy_sample(em, sample);
 
 	spin_unlock_irqrestore(&em->lock, cpu_flags);
@@ -123,7 +137,6 @@ u64
 pmlab_power_consumption_of_task(struct task_struct *tsk)
 {
 	struct energy_model *em = &tsk->energy_model;
-
 	unsigned long cpu_flags;
 	spin_lock_irqsave(&em->lock, cpu_flags);
 
