@@ -8,7 +8,7 @@
 
 struct task_struct; // defined externally
 
-#define MAX_ENERGY_SAMPLES 16
+#define MAX_ENERGY_SAMPLES 256 // sizeof(energy_model->samples) == 4096
 
 struct energy_sample {
 	u64 energy;
