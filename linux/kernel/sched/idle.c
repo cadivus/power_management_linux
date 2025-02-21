@@ -415,9 +415,12 @@ void play_idle_precise(u64 duration_ns, u64 latency_ns)
 }
 EXPORT_SYMBOL_GPL(play_idle_precise);
 
+// Not quite the right place to put this include, but it should suffice.
+#include <linux/pmlab.h>
+
 void cpu_startup_entry(enum cpuhp_state state)
 {
-	install_power_performance_counters();
+	pmlab_install_performance_counters();
 
 	current->flags |= PF_IDLE;
 	arch_cpu_idle_prepare();
