@@ -7,13 +7,16 @@
 #include <linux/percpu-defs.h>
 #include <linux/spinlock.h>
 #include <linux/timekeeping.h>
-#include <asm/msr.h> // Needed to access performance counters through MSRs
+#include <asm/msr.h>
+#include <asm/perf_event.h>
 //#include <linux/pmlab.h> // Included in linux/sched.h
 
-#define NUM_ENERGY_COUNTERS 1
+#define NUM_ENERGY_COUNTERS 2
+
+#define BR_MISP_RETIRED_ALL_BRANCHES 0x00c5
 
 const s64 energy_model_factors[NUM_ENERGY_COUNTERS] = {
-	1000
+	600, 400
 };
 
 struct measurement {
@@ -73,7 +76,8 @@ static void
 conduct_measurement(struct measurement *mea)
 {
 	mea->time = ktime_get_ns();
-	rdmsrl(MSR_P6_PERFCTR0, mea->counters[0]);
+	rdmsrl(MSR_ARCH_PERFMON_PERFCTR0, mea->counters[0]);
+	rdmsrl(MSR_ARCH_PERFMON_PERFCTR1, mea->counters[1]);
 }
 
 static u64
@@ -103,8 +107,12 @@ pmlab_install_performance_counters(void)
 {
 	u64 proc_id = smp_processor_id();
 	printk("PML: Installing power performance counters on processor %llu.\n", proc_id);
+
+	// Simply enable all fixed and programmable counters
 	wrmsrl(MSR_CORE_PERF_GLOBAL_CTRL, 0x7000000fful);
-	wrmsrl(MSR_P6_EVNTSEL0, 0x004300c0);
+	// Configure the individual event counters
+	wrmsrl(MSR_ARCH_PERFMON_EVENTSEL0, 0xc0 | ARCH_PERFMON_EVENTSEL_USR | ARCH_PERFMON_EVENTSEL_OS | ARCH_PERFMON_EVENTSEL_ENABLE);
+	wrmsrl(MSR_ARCH_PERFMON_EVENTSEL1, BR_MISP_RETIRED_ALL_BRANCHES | ARCH_PERFMON_EVENTSEL_USR | ARCH_PERFMON_EVENTSEL_OS | ARCH_PERFMON_EVENTSEL_ENABLE);
 
 	struct measurement *latest = &get_cpu_var(pmlab_latest);
 	conduct_measurement(latest);
