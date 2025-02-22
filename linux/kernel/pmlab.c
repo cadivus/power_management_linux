@@ -11,12 +11,15 @@
 #include <asm/perf_event.h>
 //#include <linux/pmlab.h> // Included in linux/sched.h
 
-#define NUM_ENERGY_COUNTERS 2
+#define NUM_ENERGY_COUNTERS 3
 
+// Event number + umask for L3 cache misses
+#define LONGEST_LAT_CACHE_MISS       0x412e
+// Event number + umask for branch misses
 #define BR_MISP_RETIRED_ALL_BRANCHES 0x00c5
 
 const s64 energy_model_factors[NUM_ENERGY_COUNTERS] = {
-	600, 400
+	400, 300, 300
 };
 
 struct measurement {
@@ -76,8 +79,9 @@ static void
 conduct_measurement(struct measurement *mea)
 {
 	mea->time = ktime_get_ns();
-	rdmsrl(MSR_ARCH_PERFMON_PERFCTR0, mea->counters[0]);
-	rdmsrl(MSR_ARCH_PERFMON_PERFCTR1, mea->counters[1]);
+	rdmsrl(MSR_ARCH_PERFMON_FIXED_CTR0, mea->counters[0]);
+	rdmsrl(MSR_ARCH_PERFMON_PERFCTR0,   mea->counters[1]);
+	rdmsrl(MSR_ARCH_PERFMON_PERFCTR1,   mea->counters[2]);
 }
 
 static u64
@@ -111,8 +115,9 @@ pmlab_install_performance_counters(void)
 	// Simply enable all fixed and programmable counters
 	wrmsrl(MSR_CORE_PERF_GLOBAL_CTRL, 0x7000000fful);
 	// Configure the individual event counters
-	wrmsrl(MSR_ARCH_PERFMON_EVENTSEL0, 0xc0 | ARCH_PERFMON_EVENTSEL_USR | ARCH_PERFMON_EVENTSEL_OS | ARCH_PERFMON_EVENTSEL_ENABLE);
-	wrmsrl(MSR_ARCH_PERFMON_EVENTSEL1, BR_MISP_RETIRED_ALL_BRANCHES | ARCH_PERFMON_EVENTSEL_USR | ARCH_PERFMON_EVENTSEL_OS | ARCH_PERFMON_EVENTSEL_ENABLE);
+	wrmsrl(MSR_ARCH_PERFMON_FIXED_CTR_CTRL, INTEL_FIXED_0_KERNEL | INTEL_FIXED_0_USER);
+	wrmsrl(MSR_ARCH_PERFMON_EVENTSEL0, BR_MISP_RETIRED_ALL_BRANCHES | ARCH_PERFMON_EVENTSEL_USR | ARCH_PERFMON_EVENTSEL_OS | ARCH_PERFMON_EVENTSEL_ENABLE);
+	wrmsrl(MSR_ARCH_PERFMON_EVENTSEL1, LONGEST_LAT_CACHE_MISS | ARCH_PERFMON_EVENTSEL_USR | ARCH_PERFMON_EVENTSEL_OS | ARCH_PERFMON_EVENTSEL_ENABLE);
 
 	struct measurement *latest = &get_cpu_var(pmlab_latest);
 	conduct_measurement(latest);
