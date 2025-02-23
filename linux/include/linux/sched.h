@@ -48,6 +48,8 @@
 #include <linux/uidgid_types.h>
 #include <asm/kmap_size.h>
 
+#include <linux/pmlab.h>
+
 /* task_struct member predeclarations (sorted alphabetically): */
 struct audit_context;
 struct bio_list;
@@ -1592,8 +1594,10 @@ struct task_struct {
 	struct user_event_mm		*user_event_mm;
 #endif
 
-	u64							consumed_power;
-	bool						power_should_be_profiled;
+	/* (Power Management Lab)
+	 * See linux/pmlab.h for the defintion of this struct. */
+	struct energy_model		 energy_model;
+
 	/*
 	 * New fields for task_struct should be added above here, so that
 	 * they are included in the randomized portion of task_struct.

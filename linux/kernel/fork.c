@@ -120,6 +120,8 @@
 
 #include <kunit/visibility.h>
 
+#include <linux/pmlab.h>
+
 /*
  * Minimum number of threads to boot the kernel
  */
@@ -1173,6 +1175,8 @@ static struct task_struct *dup_task_struct(struct task_struct *orig, int node)
 	kcov_task_init(tsk);
 	kmsan_task_create(tsk);
 	kmap_local_fork(tsk);
+
+	pmlab_reset_task_struct(tsk);
 
 #ifdef CONFIG_FAULT_INJECTION
 	tsk->fail_nth = 0;
