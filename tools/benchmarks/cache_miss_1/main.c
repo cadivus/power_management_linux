@@ -28,13 +28,16 @@ long long sum_by_columns() {
 int main() {
     srand(time(NULL));
     initialize_matrix();
+    
+    long long sum = 0;
 
     clock_t start = clock();
-    long long sum = sum_by_columns();
+    for (int i = 0; i < 80; ++i) {
+        sum = sum_by_columns();
+    }
     clock_t end = clock();
 
     printf("Sum: %lld\n", sum);
     printf("Time: %f seconds\n", (double)(end - start) / CLOCKS_PER_SEC);
     return 0;
 }
-
