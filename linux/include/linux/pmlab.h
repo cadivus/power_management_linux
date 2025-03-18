@@ -47,7 +47,7 @@ void pmlab_install_performance_counters(void);
  */
 void pmlab_update_after_timeslice(struct task_struct *prev);
 
-/* Returns the estimated power consumption of the given task.
+/* Returns the estimated power consumption of the given task in milliwatt.
  */
 u64  pmlab_power_consumption_of_task(struct task_struct *tsk);
 

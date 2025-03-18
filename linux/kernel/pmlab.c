@@ -11,15 +11,29 @@
 #include <asm/perf_event.h>
 //#include <linux/pmlab.h> // Included in linux/sched.h
 
-#define NUM_ENERGY_COUNTERS 3
+// These aren't defined in the Linux headers, so we define them ourselves:
+#define MSR_ARCH_PERFMON_EVENTSEL2 0x188
+#define MSR_ARCH_PERFMON_EVENTSEL3 0x189
+#define MSR_ARCH_PERFMON_PERFCTR2 0xc3
+#define MSR_ARCH_PERFMON_PERFCTR3 0xc4
 
+#define MEM_INST_RETIRED_ALL_LOADS   0x81d0
+#define ICACHE_ACCESSES              0x0380
+#define TOPDOWN_RETIRING_ALL         0x00c2
+#define UNC_M_CLOCKTICKS             0x0001
 // Event number + umask for L3 cache misses
 #define LONGEST_LAT_CACHE_MISS       0x412e
 // Event number + umask for branch misses
 #define BR_MISP_RETIRED_ALL_BRANCHES 0x00c5
 
-const s64 energy_model_factors[NUM_ENERGY_COUNTERS] = {
-	400, 300, 300
+#define NUM_ENERGY_COUNTERS 5
+
+#define EFFICIENCY_CORE  0
+#define PERFORMANCE_CORE 1
+
+const s64 energy_model_factors[NUM_ENERGY_COUNTERS + 1] = {
+	-40, 377, 212, 91, 1451, 5671202142645 - 2140000000000, // efficiency core
+	// last element is intercept
 };
 
 struct measurement {
@@ -82,19 +96,21 @@ conduct_measurement(struct measurement *mea)
 	rdmsrl(MSR_ARCH_PERFMON_FIXED_CTR0, mea->counters[0]);
 	rdmsrl(MSR_ARCH_PERFMON_PERFCTR0,   mea->counters[1]);
 	rdmsrl(MSR_ARCH_PERFMON_PERFCTR1,   mea->counters[2]);
+	rdmsrl(MSR_ARCH_PERFMON_PERFCTR2,   mea->counters[3]);
+	rdmsrl(MSR_ARCH_PERFMON_PERFCTR3,   mea->counters[4]);
 }
 
 static u64
 evaluate_energy_model(const struct measurement *start, const struct measurement *end)
 {
-	s64 energy_sum = 0;
+	s64 energy_sum = energy_model_factors[NUM_ENERGY_COUNTERS];
 	for (unsigned i = 0; i < NUM_ENERGY_COUNTERS; i++) {
 		// Unsigned differentiation handles counter wrap-around
 		u64 delta = end->counters[i] - start->counters[i];
 		// Signed dot product allows for negative factors
 		energy_sum += energy_model_factors[i] * (s64)delta;
 	}
-	// Total sum should not be negative, even if some product are
+	// Total sum should not be negative, even if some products are
 	return energy_sum < 0 ? 0 : (u64)energy_sum;
 }
 
@@ -116,8 +132,10 @@ pmlab_install_performance_counters(void)
 	wrmsrl(MSR_CORE_PERF_GLOBAL_CTRL, 0x7000000fful);
 	// Configure the individual event counters
 	wrmsrl(MSR_ARCH_PERFMON_FIXED_CTR_CTRL, INTEL_FIXED_0_KERNEL | INTEL_FIXED_0_USER);
-	wrmsrl(MSR_ARCH_PERFMON_EVENTSEL0, BR_MISP_RETIRED_ALL_BRANCHES | ARCH_PERFMON_EVENTSEL_USR | ARCH_PERFMON_EVENTSEL_OS | ARCH_PERFMON_EVENTSEL_ENABLE);
-	wrmsrl(MSR_ARCH_PERFMON_EVENTSEL1, LONGEST_LAT_CACHE_MISS | ARCH_PERFMON_EVENTSEL_USR | ARCH_PERFMON_EVENTSEL_OS | ARCH_PERFMON_EVENTSEL_ENABLE);
+	wrmsrl(MSR_ARCH_PERFMON_EVENTSEL0, MEM_INST_RETIRED_ALL_LOADS | ARCH_PERFMON_EVENTSEL_USR | ARCH_PERFMON_EVENTSEL_OS | ARCH_PERFMON_EVENTSEL_ENABLE);
+	wrmsrl(MSR_ARCH_PERFMON_EVENTSEL1, ICACHE_ACCESSES | ARCH_PERFMON_EVENTSEL_USR | ARCH_PERFMON_EVENTSEL_OS | ARCH_PERFMON_EVENTSEL_ENABLE);
+	wrmsrl(MSR_ARCH_PERFMON_EVENTSEL2, TOPDOWN_RETIRING_ALL | ARCH_PERFMON_EVENTSEL_USR | ARCH_PERFMON_EVENTSEL_OS | ARCH_PERFMON_EVENTSEL_ENABLE);
+	wrmsrl(MSR_ARCH_PERFMON_EVENTSEL3, UNC_M_CLOCKTICKS | ARCH_PERFMON_EVENTSEL_USR | ARCH_PERFMON_EVENTSEL_OS | ARCH_PERFMON_EVENTSEL_ENABLE);
 
 	struct measurement *latest = &get_cpu_var(pmlab_latest);
 	conduct_measurement(latest);
@@ -158,18 +176,13 @@ pmlab_power_consumption_of_task(struct task_struct *tsk)
 
 	spin_unlock_irqrestore(&em->lock, cpu_flags);
 
-	u64 power = total_energy;
+	u64 power;
 	if (total_duration > 0) { // Don't divide by zero
-		// Perform the following calculation with 128 bit precision:
-		// power = energy / (duration / 10^9)
-		const u64 ns_per_sec = 1000000000ul;
-		u64 hi = 0;
-		__asm__ (
-			"mulq	%2\n\t"
-			"divq	%3"
-			: "+a"(power), "+d"(hi)
-			: "rm"(ns_per_sec), "rm"(total_duration)
-			: "cc");
+		// pWs / ns = mW
+		// TODO proper rounding
+		power = total_energy / total_duration;
+	} else {
+		power = 0;
 	}
 
 	return power;
