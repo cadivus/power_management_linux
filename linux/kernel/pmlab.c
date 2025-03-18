@@ -31,9 +31,10 @@
 #define EFFICIENCY_CORE  0
 #define PERFORMANCE_CORE 1
 
-const s64 energy_model_factors[NUM_ENERGY_COUNTERS + 1] = {
-	-40, 377, 212, 91, 1451, 5671202142645 - 2140000000000, // efficiency core
-	// last element is intercept
+const s64 energy_model_factors[2][NUM_ENERGY_COUNTERS + 1] = {
+	// last element in row is the intercept
+	{ -40, 377, 212, 91, 1451, 5671202142645 - 2140000000000 }, // efficiency core
+	{ -40, 377, 212, 91, 1451, 5671202142645 - 2140000000000 }, // performance core
 };
 
 struct measurement {
@@ -42,6 +43,14 @@ struct measurement {
 };
 
 DEFINE_PER_CPU(struct measurement, pmlab_latest);
+DEFINE_PER_CPU(unsigned, pmlab_core_type);
+
+// Calling this function only makes sense if preemption is disabled.
+static inline unsigned
+my_core_type(void)
+{
+	return *this_cpu_ptr(&pmlab_core_type);
+}
 
 /* Push a new sample onto the ring buffer, and update the total estimate accordingly.
  * em->lock must be held when calling this function.
@@ -103,12 +112,13 @@ conduct_measurement(struct measurement *mea)
 static u64
 evaluate_energy_model(const struct measurement *start, const struct measurement *end)
 {
-	s64 energy_sum = energy_model_factors[NUM_ENERGY_COUNTERS];
+	unsigned core_type = my_core_type();
+	s64 energy_sum = energy_model_factors[core_type][NUM_ENERGY_COUNTERS];
 	for (unsigned i = 0; i < NUM_ENERGY_COUNTERS; i++) {
 		// Unsigned differentiation handles counter wrap-around
 		u64 delta = end->counters[i] - start->counters[i];
 		// Signed dot product allows for negative factors
-		energy_sum += energy_model_factors[i] * (s64)delta;
+		energy_sum += energy_model_factors[core_type][i] * (s64)delta;
 	}
 	// Total sum should not be negative, even if some products are
 	return energy_sum < 0 ? 0 : (u64)energy_sum;
@@ -117,6 +127,9 @@ evaluate_energy_model(const struct measurement *start, const struct measurement 
 void
 pmlab_reset_task_struct(struct task_struct *tsk)
 {
+	// Task structs are copied on fork().
+	// We don't want our energy model to be copied,
+	// so we have to reset its contents here.
 	struct energy_model *em = &tsk->energy_model;
 	memset(em, 0, sizeof *em);
 	spin_lock_init(&em->lock);
@@ -126,17 +139,42 @@ void
 pmlab_install_performance_counters(void)
 {
 	u64 proc_id = smp_processor_id();
-	printk("PML: Installing power performance counters on processor %llu.\n", proc_id);
+
+	// Distinguish efficiency <-> performance cores
+	uint32_t eax = 0x1A;
+	__asm__ ("cpuid\n\t" : "+a"(eax) :: "ebx", "ecx", "edx"); // Get EAX of Leaf 0x1A
+	unsigned core_family = eax >> 24;
+	unsigned *core_type = &get_cpu_var(pmlab_core_type);
+	if (core_family == 0x20) { // Intel Atom (Efficiency Core)
+		*core_type = EFFICIENCY_CORE;
+	} else { // Intel Core (Performance Core)
+		*core_type = PERFORMANCE_CORE;
+	}
+	put_cpu_var(pmlab_core_type);
+
+	printk("PMLab: Installing power performance counters on %c processor %llu.\n",
+		my_core_type() == EFFICIENCY_CORE ? 'E' : 'P', proc_id);
 
 	// Simply enable all fixed and programmable counters
 	wrmsrl(MSR_CORE_PERF_GLOBAL_CTRL, 0x7000000fful);
-	// Configure the individual event counters
-	wrmsrl(MSR_ARCH_PERFMON_FIXED_CTR_CTRL, INTEL_FIXED_0_KERNEL | INTEL_FIXED_0_USER);
-	wrmsrl(MSR_ARCH_PERFMON_EVENTSEL0, MEM_INST_RETIRED_ALL_LOADS | ARCH_PERFMON_EVENTSEL_USR | ARCH_PERFMON_EVENTSEL_OS | ARCH_PERFMON_EVENTSEL_ENABLE);
-	wrmsrl(MSR_ARCH_PERFMON_EVENTSEL1, ICACHE_ACCESSES | ARCH_PERFMON_EVENTSEL_USR | ARCH_PERFMON_EVENTSEL_OS | ARCH_PERFMON_EVENTSEL_ENABLE);
-	wrmsrl(MSR_ARCH_PERFMON_EVENTSEL2, TOPDOWN_RETIRING_ALL | ARCH_PERFMON_EVENTSEL_USR | ARCH_PERFMON_EVENTSEL_OS | ARCH_PERFMON_EVENTSEL_ENABLE);
-	wrmsrl(MSR_ARCH_PERFMON_EVENTSEL3, UNC_M_CLOCKTICKS | ARCH_PERFMON_EVENTSEL_USR | ARCH_PERFMON_EVENTSEL_OS | ARCH_PERFMON_EVENTSEL_ENABLE);
 
+	// Configure the individual event counters
+	if (my_core_type() == EFFICIENCY_CORE) {
+		wrmsrl(MSR_ARCH_PERFMON_FIXED_CTR_CTRL, INTEL_FIXED_0_KERNEL | INTEL_FIXED_0_USER);
+		wrmsrl(MSR_ARCH_PERFMON_EVENTSEL0, MEM_INST_RETIRED_ALL_LOADS | ARCH_PERFMON_EVENTSEL_USR | ARCH_PERFMON_EVENTSEL_OS | ARCH_PERFMON_EVENTSEL_ENABLE);
+		wrmsrl(MSR_ARCH_PERFMON_EVENTSEL1, ICACHE_ACCESSES | ARCH_PERFMON_EVENTSEL_USR | ARCH_PERFMON_EVENTSEL_OS | ARCH_PERFMON_EVENTSEL_ENABLE);
+		wrmsrl(MSR_ARCH_PERFMON_EVENTSEL2, TOPDOWN_RETIRING_ALL | ARCH_PERFMON_EVENTSEL_USR | ARCH_PERFMON_EVENTSEL_OS | ARCH_PERFMON_EVENTSEL_ENABLE);
+		wrmsrl(MSR_ARCH_PERFMON_EVENTSEL3, UNC_M_CLOCKTICKS | ARCH_PERFMON_EVENTSEL_USR | ARCH_PERFMON_EVENTSEL_OS | ARCH_PERFMON_EVENTSEL_ENABLE);
+	} else { // PERFORMANCE_CORE
+		// TODO select sensible counters
+		wrmsrl(MSR_ARCH_PERFMON_FIXED_CTR_CTRL, INTEL_FIXED_0_KERNEL | INTEL_FIXED_0_USER);
+		wrmsrl(MSR_ARCH_PERFMON_EVENTSEL0, MEM_INST_RETIRED_ALL_LOADS | ARCH_PERFMON_EVENTSEL_USR | ARCH_PERFMON_EVENTSEL_OS | ARCH_PERFMON_EVENTSEL_ENABLE);
+		wrmsrl(MSR_ARCH_PERFMON_EVENTSEL1, ICACHE_ACCESSES | ARCH_PERFMON_EVENTSEL_USR | ARCH_PERFMON_EVENTSEL_OS | ARCH_PERFMON_EVENTSEL_ENABLE);
+		wrmsrl(MSR_ARCH_PERFMON_EVENTSEL2, TOPDOWN_RETIRING_ALL | ARCH_PERFMON_EVENTSEL_USR | ARCH_PERFMON_EVENTSEL_OS | ARCH_PERFMON_EVENTSEL_ENABLE);
+		wrmsrl(MSR_ARCH_PERFMON_EVENTSEL3, UNC_M_CLOCKTICKS | ARCH_PERFMON_EVENTSEL_USR | ARCH_PERFMON_EVENTSEL_OS | ARCH_PERFMON_EVENTSEL_ENABLE);
+	}
+
+	// Gather a first measurement
 	struct measurement *latest = &get_cpu_var(pmlab_latest);
 	conduct_measurement(latest);
 	put_cpu_var(pmlab_latest);
