@@ -33,6 +33,7 @@
 
 const s64 energy_model_factors[2][NUM_ENERGY_COUNTERS + 1] = {
 	// last element in row is the intercept
+	// TODO use proper factors
 	{ -40, 377, 212, 91, 1451, 5671202142645 - 2140000000000 }, // efficiency core
 	{ -40, 377, 212, 91, 1451, 5671202142645 - 2140000000000 }, // performance core
 };
@@ -156,6 +157,7 @@ pmlab_install_performance_counters(void)
 		my_core_type() == EFFICIENCY_CORE ? 'E' : 'P', proc_id);
 
 	// Simply enable all fixed and programmable counters
+	// FIXME this access gets trapped as illegal on E cores?
 	wrmsrl(MSR_CORE_PERF_GLOBAL_CTRL, 0x7000000fful);
 
 	// Configure the individual event counters
