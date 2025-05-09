@@ -21,7 +21,7 @@ def run_perf_test(command, perf_counters, little_cores=False):
 
     cores = get_little_cores() if little_cores else get_big_cores()
     taskset_cmd = f"taskset -c {','.join(map(str, cores))}"
-    perf_cmd = f"perf stat -i -e {','.join(perf_counters)} {command}"
+    perf_cmd = f"perf stat -e {','.join(perf_counters)} {command}"
     full_cmd = f"{taskset_cmd} {perf_cmd}"
     print(f"Running command: {full_cmd}")
 
