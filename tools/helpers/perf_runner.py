@@ -23,6 +23,7 @@ def run_perf_test(command, perf_counters, little_cores=False):
     taskset_cmd = f"taskset -c {','.join(map(str, cores))}"
     perf_cmd = f"perf stat -i -e {','.join(perf_counters)} {command}"
     full_cmd = f"{taskset_cmd} {perf_cmd}"
+    print(f"Running command: {full_cmd}")
 
     start_energy = read_energy()
     start_time = time.time()
