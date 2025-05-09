@@ -87,6 +87,16 @@ def parse_perf_output(output, command, perf_counters, little_cores):
                         data[counter] = int(value.replace(',', '').replace('.', ''))
                 except ValueError:
                     data[counter] = value.strip()
+            elif (counter + ":u") in perf_counters:
+                try:
+                    if '<not counted>' in value:
+                        data[(counter + ":u")] = '<not counted>'
+                    elif '<not supported>' in value:
+                        data[(counter + ":u")] = '<not supported>'
+                    else:
+                        data[(counter + ":u")] = int(value.replace(',', '').replace('.', ''))
+                except ValueError:
+                    data[(counter + ":u")] = value.strip()
             elif (counter + "/") in perf_counters:
                 try:
                     if '<not counted>' in value:
@@ -97,6 +107,26 @@ def parse_perf_output(output, command, perf_counters, little_cores):
                         data[(counter + "/")] = int(value.replace(',', '').replace('.', ''))
                 except ValueError:
                     data[(counter + "/")] = value.strip()
+            elif (counter + "/:u") in perf_counters:
+                try:
+                    if '<not counted>' in value:
+                        data[(counter + "/:u")] = '<not counted>'
+                    elif '<not supported>' in value:
+                        data[(counter + "/:u")] = '<not supported>'
+                    else:
+                        data[(counter + "/:u")] = int(value.replace(',', '').replace('.', ''))
+                except ValueError:
+                    data[(counter + "/:u")] = value.strip()
+            elif (counter + ":u/") in perf_counters:
+                try:
+                    if '<not counted>' in value:
+                        data[(counter + ":u/")] = '<not counted>'
+                    elif '<not supported>' in value:
+                        data[(counter + ":u/")] = '<not supported>'
+                    else:
+                        data[(counter + ":u/")] = int(value.replace(',', '').replace('.', ''))
+                except ValueError:
+                    data[(counter + ":u/")] = value.strip()
 
     for counter in perf_counters:
         if counter not in data:
