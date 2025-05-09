@@ -46,6 +46,11 @@ def run_perf_test(command, perf_counters, little_cores=False):
     if 'rapl_power_consumption_in_watt' not in perf_results:
         perf_results['rapl_power_consumption_in_watt'] = round(average_power_watt, 2)
 
+    print("Perf results:")
+    print(perf_results)
+    print("")
+    print("")
+
     return perf_results
 
 
