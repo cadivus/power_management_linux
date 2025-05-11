@@ -130,6 +130,23 @@ def normalize_csv(input_file):
                 new_row.append("")
         new_rows.append(new_row)
 
+    # Subtract first data row from each row (including itself)
+    # Copy baseline values so mutation doesn't affect subsequent subtractions
+    baseline = new_rows[1].copy()
+    for r_idx, row in enumerate(new_rows[1:], start=1):
+        for col in range(1, len(new_header)):
+            base_str = baseline[col]
+            curr_str = row[col]
+            base_num, base_suf, _ = parse_number(base_str)
+            curr_num, curr_suf, _ = parse_number(curr_str)
+            if base_num is None and curr_num is None:
+                continue
+            if base_num is None or curr_num is None:
+                raise ValueError(f"Incompatible types at row {r_idx} column {col}: '{curr_str}' vs '{base_str}'")
+            diff = curr_num - base_num
+            suffix = curr_suf
+            row[col] = str(diff) + suffix
+
     # Write out the new CSV.
     with open(output_file, "w", newline='', encoding='utf-8') as outf:
         writer = csv.writer(outf)
