@@ -1,5 +1,6 @@
 /* Power Management Lab */
 
+#include <stdbool.h>
 #include <linux/printk.h>
 #include <linux/string.h>
 #include <linux/sched.h>
@@ -17,7 +18,19 @@
 #define MSR_ARCH_PERFMON_PERFCTR2 0xc3
 #define MSR_ARCH_PERFMON_PERFCTR3 0xc4
 
-// Perfmon event numbers + umasks
+// Perfmon event numbers (low byte) with umasks (high byte).
+// Different CPU types may use different event numbers for the same event.
+// Perf cores are CORE type, efficiency cores are ATOM type.
+#define ATOM_L1_dcache_loads  0x81d0 // source: https://community.intel.com/t5/Software-Tuning-Performance/Understanding-L1-L2-L3-misses/m-p/1056573
+#define ATOM_L1_icache_loads  0x0380 // Not sure. We use ICACHE.ACCESSES here.
+#define ATOM_iTLB_load_misses 0x0481 // ITLB.MISS
+#define ATOM_bus_cycles       0x013c
+#define CORE_dTLB_loads       0x81d0 // source: https://stackoverflow.com/questions/56172115/what-is-the-meaning-of-perf-events-dtlb-loads-and-dtlb-stores
+#define CORE_bus_cycles       0x013c
+#define CORE_mem_stores       0x02cd
+#define CORE_ref_cycles       0x013c
+
+#if 0
 #define MEM_INST_RETIRED_ALL_LOADS   0x81d0 // maps to dTLB-loads
 #define ICACHE_ACCESSES              0x0380
 #define TOPDOWN_RETIRING_ALL         0x00c2
@@ -26,6 +39,7 @@
 #define BR_MISP_RETIRED_ALL_BRANCHES 0x00c5 // branch misses
 #define CSTATE_CORE_C6_RESIDENCY     0x0002 // FIXME this doesn't seem right according to perfmon-events.intel.com
 #define CACHE_MISSES                 0x412E // Architectural counter
+#endif
 
 #define NUM_ENERGY_COUNTERS (1 + 4)
 
@@ -37,10 +51,15 @@
 // the proper model coefficients.
 // The intercept values are given in pWs (That is, 10^-12 Ws or J).
 // TODO use most recently determined coefficients
-const s64 energy_model_factors[2][NUM_ENERGY_COUNTERS + 1] = {
+const s64 energy_model_coefficients[2][NUM_ENERGY_COUNTERS + 1] = {
 	// last element in row is the intercept
-	{ -40, 377, 212, 91, 1451, 5671202142645 - 2140000000000 }, // efficiency core
-	{ 47, 788, -196120, 4182, 131261, -417594758113650 - 2125000000000 }, // performance core
+	{ 37, 321, 178, 2910827, 1026, 3160539047230 }, // efficiency core
+	{ 65, 904, 15064, 0, 0, -10925121778307 }, // performance core
+};
+
+const bool energy_model_squared[2][NUM_ENERGY_COUNTERS] = {
+	{ false, false, false, false, false }, // efficiency core
+	{ false, false, false, true, true }, // performance core
 };
 
 struct measurement {
@@ -121,12 +140,19 @@ static u64
 evaluate_energy_model(const struct measurement *start, const struct measurement *end)
 {
 	unsigned core_type = my_core_type();
-	s64 energy_sum = energy_model_factors[core_type][NUM_ENERGY_COUNTERS];
+	s64 energy_sum = energy_model_coefficients[core_type][NUM_ENERGY_COUNTERS];
 	for (unsigned i = 0; i < NUM_ENERGY_COUNTERS; i++) {
 		// Unsigned differentiation handles counter wrap-around
 		u64 delta = end->counters[i] - start->counters[i];
 		// Signed dot product allows for negative factors
-		energy_sum += energy_model_factors[core_type][i] * (s64)delta;
+		energy_sum += energy_model_coefficients[core_type][i] * (s64)delta;
+		s64 coeff = energy_model_coefficients[core_type][i];
+		s64 contrib = (s64)delta;
+		contrib *= coeff;
+		if (energy_model_squared[core_type][i]) {
+			contrib *= coeff;
+		}
+		energy_sum += contrib;
 	}
 	// Total sum should not be negative, even if some products are
 	return energy_sum < 0 ? 0 : (u64)energy_sum;
@@ -168,18 +194,18 @@ pmlab_install_performance_counters(void)
 	wrmsrl(MSR_CORE_PERF_GLOBAL_CTRL, 0x70000003ful);
 
 	// Configure the individual event counters
-	if (my_core_type() == EFFICIENCY_CORE) {
-		wrmsrl(MSR_ARCH_PERFMON_FIXED_CTR_CTRL, INTEL_FIXED_0_KERNEL | INTEL_FIXED_0_USER);
-		wrmsrl(MSR_ARCH_PERFMON_EVENTSEL0, MEM_INST_RETIRED_ALL_LOADS | ARCH_PERFMON_EVENTSEL_USR | ARCH_PERFMON_EVENTSEL_ENABLE);
-		wrmsrl(MSR_ARCH_PERFMON_EVENTSEL1, ICACHE_ACCESSES | ARCH_PERFMON_EVENTSEL_USR | ARCH_PERFMON_EVENTSEL_ENABLE);
-		wrmsrl(MSR_ARCH_PERFMON_EVENTSEL2, TOPDOWN_RETIRING_ALL | ARCH_PERFMON_EVENTSEL_USR | ARCH_PERFMON_EVENTSEL_ENABLE);
-		wrmsrl(MSR_ARCH_PERFMON_EVENTSEL3, UNC_M_CLOCKTICKS | ARCH_PERFMON_EVENTSEL_USR | ARCH_PERFMON_EVENTSEL_ENABLE);
-	} else { // PERFORMANCE_CORE
-		wrmsrl(MSR_ARCH_PERFMON_FIXED_CTR_CTRL, INTEL_FIXED_0_KERNEL | INTEL_FIXED_0_USER);
-		wrmsrl(MSR_ARCH_PERFMON_EVENTSEL0, MEM_INST_RETIRED_ALL_LOADS | ARCH_PERFMON_EVENTSEL_USR | ARCH_PERFMON_EVENTSEL_ENABLE);
-		wrmsrl(MSR_ARCH_PERFMON_EVENTSEL1, CACHE_MISSES | ARCH_PERFMON_EVENTSEL_USR | ARCH_PERFMON_EVENTSEL_ENABLE);
-		wrmsrl(MSR_ARCH_PERFMON_EVENTSEL2, CSTATE_CORE_C6_RESIDENCY | ARCH_PERFMON_EVENTSEL_USR | ARCH_PERFMON_EVENTSEL_ENABLE);
-		wrmsrl(MSR_ARCH_PERFMON_EVENTSEL3, UNC_M_CLOCKTICKS | ARCH_PERFMON_EVENTSEL_USR | ARCH_PERFMON_EVENTSEL_ENABLE);
+	if (my_core_type() == EFFICIENCY_CORE) { // aka ATOM
+		wrmsrl(MSR_ARCH_PERFMON_FIXED_CTR_CTRL, INTEL_FIXED_0_USER); // instructions-retired
+		wrmsrl(MSR_ARCH_PERFMON_EVENTSEL0, ATOM_L1_dcache_loads | ARCH_PERFMON_EVENTSEL_USR | ARCH_PERFMON_EVENTSEL_ENABLE);
+		wrmsrl(MSR_ARCH_PERFMON_EVENTSEL1, ATOM_L1_icache_loads | ARCH_PERFMON_EVENTSEL_USR | ARCH_PERFMON_EVENTSEL_ENABLE);
+		wrmsrl(MSR_ARCH_PERFMON_EVENTSEL2, ATOM_iTLB_load_misses | ARCH_PERFMON_EVENTSEL_USR | ARCH_PERFMON_EVENTSEL_ENABLE);
+		wrmsrl(MSR_ARCH_PERFMON_EVENTSEL3, ATOM_bus_cycles | ARCH_PERFMON_EVENTSEL_USR | ARCH_PERFMON_EVENTSEL_ENABLE);
+	} else { // PERFORMANCE_CORE aka CORE
+		wrmsrl(MSR_ARCH_PERFMON_FIXED_CTR_CTRL, INTEL_FIXED_0_USER); // instructions retired
+		wrmsrl(MSR_ARCH_PERFMON_EVENTSEL0, CORE_dTLB_loads | ARCH_PERFMON_EVENTSEL_USR | ARCH_PERFMON_EVENTSEL_ENABLE);
+		wrmsrl(MSR_ARCH_PERFMON_EVENTSEL1, CORE_bus_cycles | ARCH_PERFMON_EVENTSEL_USR | ARCH_PERFMON_EVENTSEL_ENABLE);
+		wrmsrl(MSR_ARCH_PERFMON_EVENTSEL2, CORE_mem_stores | ARCH_PERFMON_EVENTSEL_USR | ARCH_PERFMON_EVENTSEL_ENABLE);
+		wrmsrl(MSR_ARCH_PERFMON_EVENTSEL3, CORE_ref_cycles | ARCH_PERFMON_EVENTSEL_USR | ARCH_PERFMON_EVENTSEL_ENABLE);
 	}
 
 	// Gather a first measurement
