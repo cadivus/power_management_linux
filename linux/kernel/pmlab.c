@@ -17,25 +17,30 @@
 #define MSR_ARCH_PERFMON_PERFCTR2 0xc3
 #define MSR_ARCH_PERFMON_PERFCTR3 0xc4
 
-#define MEM_INST_RETIRED_ALL_LOADS   0x81d0
+// Perfmon event numbers + umasks
+#define MEM_INST_RETIRED_ALL_LOADS   0x81d0 // maps to dTLB-loads
 #define ICACHE_ACCESSES              0x0380
 #define TOPDOWN_RETIRING_ALL         0x00c2
 #define UNC_M_CLOCKTICKS             0x0001
-// Event number + umask for L3 cache misses
-#define LONGEST_LAT_CACHE_MISS       0x412e
-// Event number + umask for branch misses
-#define BR_MISP_RETIRED_ALL_BRANCHES 0x00c5
+#define LONGEST_LAT_CACHE_MISS       0x412e // L3 cache misses
+#define BR_MISP_RETIRED_ALL_BRANCHES 0x00c5 // branch misses
+#define CSTATE_CORE_C6_RESIDENCY     0x0002 // FIXME this doesn't seem right according to perfmon-events.intel.com
+#define CACHE_MISSES                 0x412E // Architectural counter
 
-#define NUM_ENERGY_COUNTERS 5
+#define NUM_ENERGY_COUNTERS (1 + 4)
 
 #define EFFICIENCY_CORE  0
 #define PERFORMANCE_CORE 1
 
+// The multiplicative factors given here are scaled up to allow for
+// integer calculation. Scale these values down by 10^-12 to reach
+// the proper model coefficients.
+// The intercept values are given in pWs (That is, 10^-12 Ws or J).
+// TODO use most recently determined coefficients
 const s64 energy_model_factors[2][NUM_ENERGY_COUNTERS + 1] = {
 	// last element in row is the intercept
-	// TODO use proper factors
 	{ -40, 377, 212, 91, 1451, 5671202142645 - 2140000000000 }, // efficiency core
-	{ -40, 377, 212, 91, 1451, 5671202142645 - 2140000000000 }, // performance core
+	{ 47, 788, -196120, 4182, 131261, -417594758113650 - 2125000000000 }, // performance core
 };
 
 struct measurement {
@@ -81,6 +86,7 @@ push_energy_sample(struct energy_model *em, struct energy_sample sample)
 	em->total_duration += sample.duration;
 }
 
+#if 0
 /* Pop the oldest sample off the ring buffer, and update the total estimate accordingly.
  * em->lock must be held when calling this function.
  */
@@ -98,6 +104,7 @@ drop_energy_sample(struct energy_model *em)
 	}
 	em->num_samples--;
 }
+#endif
 
 static void
 conduct_measurement(struct measurement *mea)
@@ -158,22 +165,21 @@ pmlab_install_performance_counters(void)
 
 	// Simply enable all fixed and programmable counters
 	// FIXME this access gets trapped as illegal on E cores?
-	wrmsrl(MSR_CORE_PERF_GLOBAL_CTRL, 0x7000000fful);
+	wrmsrl(MSR_CORE_PERF_GLOBAL_CTRL, 0x70000003ful);
 
 	// Configure the individual event counters
 	if (my_core_type() == EFFICIENCY_CORE) {
 		wrmsrl(MSR_ARCH_PERFMON_FIXED_CTR_CTRL, INTEL_FIXED_0_KERNEL | INTEL_FIXED_0_USER);
-		wrmsrl(MSR_ARCH_PERFMON_EVENTSEL0, MEM_INST_RETIRED_ALL_LOADS | ARCH_PERFMON_EVENTSEL_USR | ARCH_PERFMON_EVENTSEL_OS | ARCH_PERFMON_EVENTSEL_ENABLE);
-		wrmsrl(MSR_ARCH_PERFMON_EVENTSEL1, ICACHE_ACCESSES | ARCH_PERFMON_EVENTSEL_USR | ARCH_PERFMON_EVENTSEL_OS | ARCH_PERFMON_EVENTSEL_ENABLE);
-		wrmsrl(MSR_ARCH_PERFMON_EVENTSEL2, TOPDOWN_RETIRING_ALL | ARCH_PERFMON_EVENTSEL_USR | ARCH_PERFMON_EVENTSEL_OS | ARCH_PERFMON_EVENTSEL_ENABLE);
-		wrmsrl(MSR_ARCH_PERFMON_EVENTSEL3, UNC_M_CLOCKTICKS | ARCH_PERFMON_EVENTSEL_USR | ARCH_PERFMON_EVENTSEL_OS | ARCH_PERFMON_EVENTSEL_ENABLE);
+		wrmsrl(MSR_ARCH_PERFMON_EVENTSEL0, MEM_INST_RETIRED_ALL_LOADS | ARCH_PERFMON_EVENTSEL_USR | ARCH_PERFMON_EVENTSEL_ENABLE);
+		wrmsrl(MSR_ARCH_PERFMON_EVENTSEL1, ICACHE_ACCESSES | ARCH_PERFMON_EVENTSEL_USR | ARCH_PERFMON_EVENTSEL_ENABLE);
+		wrmsrl(MSR_ARCH_PERFMON_EVENTSEL2, TOPDOWN_RETIRING_ALL | ARCH_PERFMON_EVENTSEL_USR | ARCH_PERFMON_EVENTSEL_ENABLE);
+		wrmsrl(MSR_ARCH_PERFMON_EVENTSEL3, UNC_M_CLOCKTICKS | ARCH_PERFMON_EVENTSEL_USR | ARCH_PERFMON_EVENTSEL_ENABLE);
 	} else { // PERFORMANCE_CORE
-		// TODO select sensible counters
 		wrmsrl(MSR_ARCH_PERFMON_FIXED_CTR_CTRL, INTEL_FIXED_0_KERNEL | INTEL_FIXED_0_USER);
-		wrmsrl(MSR_ARCH_PERFMON_EVENTSEL0, MEM_INST_RETIRED_ALL_LOADS | ARCH_PERFMON_EVENTSEL_USR | ARCH_PERFMON_EVENTSEL_OS | ARCH_PERFMON_EVENTSEL_ENABLE);
-		wrmsrl(MSR_ARCH_PERFMON_EVENTSEL1, ICACHE_ACCESSES | ARCH_PERFMON_EVENTSEL_USR | ARCH_PERFMON_EVENTSEL_OS | ARCH_PERFMON_EVENTSEL_ENABLE);
-		wrmsrl(MSR_ARCH_PERFMON_EVENTSEL2, TOPDOWN_RETIRING_ALL | ARCH_PERFMON_EVENTSEL_USR | ARCH_PERFMON_EVENTSEL_OS | ARCH_PERFMON_EVENTSEL_ENABLE);
-		wrmsrl(MSR_ARCH_PERFMON_EVENTSEL3, UNC_M_CLOCKTICKS | ARCH_PERFMON_EVENTSEL_USR | ARCH_PERFMON_EVENTSEL_OS | ARCH_PERFMON_EVENTSEL_ENABLE);
+		wrmsrl(MSR_ARCH_PERFMON_EVENTSEL0, MEM_INST_RETIRED_ALL_LOADS | ARCH_PERFMON_EVENTSEL_USR | ARCH_PERFMON_EVENTSEL_ENABLE);
+		wrmsrl(MSR_ARCH_PERFMON_EVENTSEL1, CACHE_MISSES | ARCH_PERFMON_EVENTSEL_USR | ARCH_PERFMON_EVENTSEL_ENABLE);
+		wrmsrl(MSR_ARCH_PERFMON_EVENTSEL2, CSTATE_CORE_C6_RESIDENCY | ARCH_PERFMON_EVENTSEL_USR | ARCH_PERFMON_EVENTSEL_ENABLE);
+		wrmsrl(MSR_ARCH_PERFMON_EVENTSEL3, UNC_M_CLOCKTICKS | ARCH_PERFMON_EVENTSEL_USR | ARCH_PERFMON_EVENTSEL_ENABLE);
 	}
 
 	// Gather a first measurement
