@@ -8,23 +8,17 @@
 
 struct task_struct; // defined externally
 
-#define MAX_ENERGY_SAMPLES 256 // sizeof(energy_model->samples) == 4096
+#define NUM_ENERGY_COUNTERS (1 + 4)
 
-struct energy_sample {
-	u64 energy;
+struct energy_counts {
 	u64 duration;
+	u64 counters[NUM_ENERGY_COUNTERS];
 };
 
 struct energy_model {
 	spinlock_t lock; // protects the entire struct
-
-	u64 total_energy;
-	u64 total_duration;
-
-	/* ring buffer of samples */
-	struct energy_sample samples[MAX_ENERGY_SAMPLES];
-	int                  first_sample;
-	int                  num_samples;
+	struct energy_counts counts;
+	int core_type;
 };
 
  /* task_struct contents are copied on fork.

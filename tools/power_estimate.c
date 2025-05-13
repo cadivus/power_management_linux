@@ -38,11 +38,13 @@ main(int argc, const char **argv)
 		exit(1);
 
 	case 0: // child
+		//setpgrp();
 		execvp(argv[1], (char *const *)(argv+1));
 		perror("exec");
 		exit(1);
 
 	default: // parent
+		signal(SIGINT, SIG_IGN);
 		for (;;) { sleep(1000); }
 	}
 }
