@@ -38,6 +38,13 @@ const unsigned energy_model_events[2][NUM_ENERGY_COUNTERS] = {
 	{ 0, CORE_dTLB_loads, CORE_bus_cycles, CORE_mem_stores, CORE_ref_cycles }, // performance core
 };
 
+// This table indicates which counter values should be squared before
+// fitting them into the energy model.
+const int energy_model_squared[2][NUM_ENERGY_COUNTERS] = {
+	{ 0, 0, 0, 0, 0 }, // efficiency core
+	{ 0, 0, 0, 1, 1 }, // performance core
+};
+
 // The multiplicative factors given here are scaled up to allow for
 // integer calculation. Scale these values down by 10^-12 to reach
 // the proper model coefficients.
@@ -47,11 +54,6 @@ const s64 energy_model_coefficients[2][NUM_ENERGY_COUNTERS + 1] = {
 	// last element in row is the intercept
 	{ 37, 321, 178, 2910827, 1026, 3160539047230 }, // efficiency core
 	{ 65, 904, 15064, 0, 0, -10925121778307 }, // performance core
-};
-
-const int energy_model_squared[2][NUM_ENERGY_COUNTERS] = {
-	{ 0, 0, 0, 0, 0 }, // efficiency core
-	{ 0, 0, 0, 1, 1 }, // performance core
 };
 
 DEFINE_PER_CPU(struct energy_counts, pmlab_previous_counts);
@@ -89,20 +91,6 @@ div_s128_s64(const s64 num[2], s64 denom)
 	return low;
 }
 
-#if 0
-static inline u64
-precise_mul_div(u64 low, u64 high, u64 mult, u64 quot)
-{
-	__asm__ (
-		"mulq %2\n\t"
-		"divq %3"
-		: "+a"(low), "+d"(high)
-		: "rm"(mult), "rm"(quot)
-		: "cc");
-	return low;
-}
-#endif
-
 // Calling this function only makes sense if preemption is disabled.
 static inline int
 my_core_type(void)
@@ -133,10 +121,9 @@ accumulate_energy_counts(struct energy_counts *accum, const struct energy_counts
 	}
 
 	// Look out for unsigned integer overflows
-	int overflowing = 0;
-	overflowing |= (accum->duration + delta.duration < accum->duration);
+	int overflowing = (accum->duration + delta.duration < accum->duration);
 	for (unsigned i = 0; i < NUM_ENERGY_COUNTERS; i++) {
-		overflowing |= (accum->counters[i] + delta.counters[i] < accum->counters[i]);
+		overflowing = overflowing || (accum->counters[i] + delta.counters[i] < accum->counters[i]);
 	}
 
 	if (overflowing) {
@@ -158,18 +145,24 @@ accumulate_energy_counts(struct energy_counts *accum, const struct energy_counts
 }
 
 static u64
-evaluate_energy_model(const struct energy_counts *ec, int core_type)
+evaluate_power_consumption(const struct energy_counts *ec, int core_type)
 {
 	// x86-64 can easily do 128-bit arithmatic.
 	// We use this extra precision here to avoid overflows
 	// from multiplications.
-	s64 energy[2] = { 0, 0 };
+	s64 energy[2] = { 0, 0 }; // in pJ
 	for (unsigned i = 0; i < NUM_ENERGY_COUNTERS; i++) {
 		u64 coeff = energy_model_coefficients[core_type][i];
 		s64 magnitude = (s64)ec->counters[i];
+
+		// TODO implement squared contribution of some counters
+#if 0
 		if (energy_model_squared[core_type][i]) {
-			magnitude *= magnitude;
+			s64 squared[2];
+			mul_s64_s128(squared, magnitude, magnitude);
+			// TODO Rescale from (pJ)^2 to p(J^2)?
 		}
+#endif
 
 		s64 contrib[2] = { 0, 0 };
 		mul_s64_s128(contrib, coeff, magnitude);
@@ -177,10 +170,11 @@ evaluate_energy_model(const struct energy_counts *ec, int core_type)
 		add_s128(energy, contrib);
 	}
 
-	u64 energy_mJ = div_s128_s64(energy, 1000000000l);
+	s64 power_mW = (ec->duration == 0) ? energy[0] :
+		div_s128_s64(energy, ec->duration); // mW = pJ / ns
 	// While individual contributions may be negative,
 	// the final estimate should not be.
-	return energy_mJ >= 0 ? energy_mJ : 0;
+	return power_mW >= 0 ? power_mW : 0;
 }
 
 void
@@ -220,8 +214,16 @@ pmlab_install_performance_counters(void)
 		core_type == EFFICIENCY_CORE ? 'E' : 'P', proc_id);
 
 	// Simply enable all fixed and programmable counters
-	// FIXME this access gets trapped as illegal on E cores?
+	// Previously, this access got trapped as illegal on E cores? That error does not happen anymore.
 	wrmsrl(MSR_CORE_PERF_GLOBAL_CTRL, 0x70000003ful);
+
+	// Log if someone other than us is already using the perf counters
+	const u64 my_counters_mask = 0x000000010000000ful;
+	u64 others_counters_mask;
+	rdmsrl(IA32_PERF_GLOBAL_INUSE, others_counters_mask);
+	if (my_counters_mask & others_counters_mask) {
+		printk("PMLab: core %llu: clashing PMC counter usage: we need %llx, others use %llx.", proc_id, my_counters_mask, others_counters_mask);
+	}
 
 	// Configure the individual event counters
 	wrmsrl(MSR_ARCH_PERFMON_FIXED_CTR_CTRL, INTEL_FIXED_0_USER); // instructions-retired
@@ -229,14 +231,6 @@ pmlab_install_performance_counters(void)
 	wrmsrl(MSR_ARCH_PERFMON_EVENTSEL1, energy_model_events[core_type][2] | ARCH_PERFMON_EVENTSEL_USR | ARCH_PERFMON_EVENTSEL_ENABLE);
 	wrmsrl(MSR_ARCH_PERFMON_EVENTSEL2, energy_model_events[core_type][3] | ARCH_PERFMON_EVENTSEL_USR | ARCH_PERFMON_EVENTSEL_ENABLE);
 	wrmsrl(MSR_ARCH_PERFMON_EVENTSEL3, energy_model_events[core_type][4] | ARCH_PERFMON_EVENTSEL_USR | ARCH_PERFMON_EVENTSEL_ENABLE);
-
-	const u64 my_counters_mask = 0x000000010000000ful;
-	u64 others_counters_mask;
-	rdmsrl(IA32_PERF_GLOBAL_INUSE, others_counters_mask);
-	if (my_counters_mask & others_counters_mask) {
-		printk("PMLab: core %llu: clashing PMC counter usage: we need %llx, others use %llx.", proc_id, my_counters_mask, others_counters_mask);
-	}
-	wrmsrl(IA32_PERF_GLOBAL_INUSE, my_counters_mask);
 
 	// Gather a first measurement on this CPU core
 	struct energy_counts *latest = &get_cpu_var(pmlab_previous_counts);
@@ -282,10 +276,9 @@ pmlab_power_consumption_of_task(struct task_struct *tsk)
 
 	spin_unlock_irqrestore(&em->lock, cpu_flags);
 
-	u64 energy_mJ = evaluate_energy_model(&counts, core_type);
+	u64 power_mW = evaluate_power_consumption(&counts, core_type);
 
-	// TODO return power instead of energy
-	return energy_mJ;
+	return power_mW;
 }
 
 #if 0
