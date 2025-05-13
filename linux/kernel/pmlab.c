@@ -33,27 +33,38 @@
 #define EFFICIENCY_CORE  0
 #define PERFORMANCE_CORE 1
 
-const unsigned energy_model_events[2][NUM_ENERGY_COUNTERS] = {
-	{ 0, ATOM_L1_dcache_loads, ATOM_L1_icache_loads, ATOM_iTLB_load_misses, ATOM_bus_cycles }, // efficiency core
-	{ 0, CORE_dTLB_loads, CORE_bus_cycles, CORE_mem_stores, CORE_ref_cycles }, // performance core
+struct energy_model_def {
+	struct energy_term {
+		unsigned event;  // Event ID with UMask
+		int is_squared;  // Either linear (0) or squared (1) contribution.
+		s64 coefficient; // Regression coefficient, scaled up by 10^12 for linear terms, and by 20^(12+9) for squared terms.
+	} terms[NUM_ENERGY_COUNTERS];
+	s64 intercept; // in mW
 };
 
-// This table indicates which counter values should be squared before
-// fitting them into the energy model.
-const int energy_model_squared[2][NUM_ENERGY_COUNTERS] = {
-	{ 0, 0, 0, 0, 0 }, // efficiency core
-	{ 0, 0, 0, 1, 1 }, // performance core
-};
-
-// The multiplicative factors given here are scaled up to allow for
-// integer calculation. Scale these values down by 10^-12 to reach
-// the proper model coefficients.
-// The intercept values are given in pWs (That is, 10^-12 Ws or J).
-// TODO use most recently determined coefficients
-const s64 energy_model_coefficients[2][NUM_ENERGY_COUNTERS + 1] = {
-	// last element in row is the intercept
-	{ 37, 321, 178, 2910827, 1026, 3160539047230 }, // efficiency core
-	{ 65, 904, 15064, 0, 0, -10925121778307 }, // performance core
+const struct energy_model_def energy_model_defs[2] = {
+	// efficiency core model
+	[EFFICIENCY_CORE] = {
+		.terms = {
+			{ 0 /* fixed ctr */,     0,  37 },
+			{ ATOM_L1_dcache_loads,  0,  321 },
+			{ ATOM_L1_icache_loads,  0,  178 },
+			{ ATOM_iTLB_load_misses, 0,  2910827 },
+			{ ATOM_bus_cycles,       0,  1026 },
+		},
+		.intercept = 3161,
+	},
+	// performance core model
+	[PERFORMANCE_CORE] = {
+		.terms = {
+			{ 0 /* fixed ctr */,     0,  65 },
+			{ CORE_dTLB_loads,       0,  904 },
+			{ CORE_bus_cycles,       0,  15064 },
+			{ CORE_mem_stores,       1, -111 },
+			{ CORE_ref_cycles,       1, -2785 },
+		},
+		.intercept = -10925,
+	},
 };
 
 DEFINE_PER_CPU(struct energy_counts, pmlab_previous_counts);
@@ -149,33 +160,47 @@ evaluate_power_consumption(const struct energy_model *em)
 		duration_ns = 1;
 	}
 
+	const struct energy_model_def *model = &energy_model_defs[em->core_type];
 	// x86-64 can easily do 128-bit arithmatic.
 	// We use this extra precision here to avoid overflows
 	// from multiplications.
-	s64 energy_pJ[2] = { 0, 0 };
+	s64 estimate[2] = { 0, 0 };
+
+	// Sum up all contributions for squared terms and divide them through duration.
+	// After the linear terms, this value will be divided again,
+	// so for squared terms we effectively compute: count * count / time / time = (count / time)^2.
 	for (unsigned i = 0; i < NUM_ENERGY_COUNTERS; i++) {
-		u64 coeff = energy_model_coefficients[em->core_type][i];
+		const struct energy_term *term = &model->terms[i];
+		if (!term->is_squared) continue;
+
 		s64 magnitude = (s64)em->counts.counters[i];
-
-		// TODO implement squared contribution of some counters
-#if 0
-		if (energy_model_squared[em->core_type][i]) {
-			s64 squared[2];
-			mul_s64_s128(squared, magnitude, magnitude);
-			// TODO Rescale from (pJ)^2 to p(J^2)?
-		}
-#endif
-
 		s64 contrib[2] = { 0, 0 };
-		mul_s64_s128(contrib, coeff, magnitude);
-
-		add_s128(energy_pJ, contrib);
+		mul_s64_s128(contrib, term->coefficient * magnitude, magnitude);
+		add_s128(estimate, contrib);
+	}
+	if (!(estimate[0] == 0 && estimate[1] == 0)) {
+		estimate[0] = div_s128_s64(estimate, duration_ns);
+		estimate[1] = estimate[0] < 0 ? -1 : 0; // sign extend into upper half
 	}
 
-	s64 power_mW = div_s128_s64(energy_pJ, duration_ns); // mW = pJ / ns
+	// Sum up all contributions for linear terms and divide them through duration.
+	for (unsigned i = 0; i < NUM_ENERGY_COUNTERS; i++) {
+		const struct energy_term *term = &model->terms[i];
+		if (term->is_squared) continue;
+
+		s64 magnitude = (s64)em->counts.counters[i];
+		s64 contrib[2] = { 0, 0 };
+		mul_s64_s128(contrib, term->coefficient, magnitude);
+		add_s128(estimate, contrib);
+	}
+	estimate[0] = div_s128_s64(estimate, duration_ns); // mW = pJ / ns
+
+	// Finally, add the intercept
+	estimate[0] += model->intercept;
+
 	// While individual contributions may be negative,
 	// the final estimate should not be.
-	return power_mW >= 0 ? power_mW : 0;
+	return estimate[0] >= 0 ? estimate[0] : 0;
 }
 
 void
@@ -229,12 +254,12 @@ pmlab_install_performance_counters(void)
 
 	// Configure the individual event counters
 	wrmsrl(MSR_ARCH_PERFMON_FIXED_CTR_CTRL, INTEL_FIXED_0_USER); // instructions-retired
-	wrmsrl(MSR_ARCH_PERFMON_EVENTSEL0, energy_model_events[core_type][1] | ARCH_PERFMON_EVENTSEL_USR | ARCH_PERFMON_EVENTSEL_ENABLE);
-	wrmsrl(MSR_ARCH_PERFMON_EVENTSEL1, energy_model_events[core_type][2] | ARCH_PERFMON_EVENTSEL_USR | ARCH_PERFMON_EVENTSEL_ENABLE);
-	wrmsrl(MSR_ARCH_PERFMON_EVENTSEL2, energy_model_events[core_type][3] | ARCH_PERFMON_EVENTSEL_USR | ARCH_PERFMON_EVENTSEL_ENABLE);
-	wrmsrl(MSR_ARCH_PERFMON_EVENTSEL3, energy_model_events[core_type][4] | ARCH_PERFMON_EVENTSEL_USR | ARCH_PERFMON_EVENTSEL_ENABLE);
+	wrmsrl(MSR_ARCH_PERFMON_EVENTSEL0, energy_model_defs[core_type].terms[1].event | ARCH_PERFMON_EVENTSEL_USR | ARCH_PERFMON_EVENTSEL_ENABLE);
+	wrmsrl(MSR_ARCH_PERFMON_EVENTSEL1, energy_model_defs[core_type].terms[2].event | ARCH_PERFMON_EVENTSEL_USR | ARCH_PERFMON_EVENTSEL_ENABLE);
+	wrmsrl(MSR_ARCH_PERFMON_EVENTSEL2, energy_model_defs[core_type].terms[3].event | ARCH_PERFMON_EVENTSEL_USR | ARCH_PERFMON_EVENTSEL_ENABLE);
+	wrmsrl(MSR_ARCH_PERFMON_EVENTSEL3, energy_model_defs[core_type].terms[4].event | ARCH_PERFMON_EVENTSEL_USR | ARCH_PERFMON_EVENTSEL_ENABLE);
 
-	// Gather a first measurement on this CPU core
+	// Gather initial counts on this CPU core
 	struct energy_counts *latest = &get_cpu_var(pmlab_previous_counts);
 	gather_energy_counts(latest);
 	put_cpu_var(pmlab_previous_counts);
