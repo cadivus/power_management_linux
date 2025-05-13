@@ -101,7 +101,6 @@ my_core_type(void)
 static void
 gather_energy_counts(struct energy_counts *ec)
 {
-	ec->duration = ktime_get_ns();
 	rdmsrl(MSR_ARCH_PERFMON_FIXED_CTR0, ec->counters[0]);
 	rdmsrl(MSR_ARCH_PERFMON_PERFCTR0,   ec->counters[1]);
 	rdmsrl(MSR_ARCH_PERFMON_PERFCTR1,   ec->counters[2]);
@@ -110,54 +109,57 @@ gather_energy_counts(struct energy_counts *ec)
 }
 
 static void
-accumulate_energy_counts(struct energy_counts *accum, const struct energy_counts *start, const struct energy_counts *end, pid_t pid)
+accumulate_energy_counts(struct task_struct *tsk, const struct energy_counts *start, const struct energy_counts *end)
 {
+	struct energy_model *em = &tsk->energy_model;
+
 	// Compute elapsed time + increases in counters.
 	// Unsigned differentiation handles counter wrap-around.
 	struct energy_counts delta;
-	delta.duration = end->duration - start->duration;
 	for (unsigned i = 0; i < NUM_ENERGY_COUNTERS; i++) {
 		delta.counters[i] = end->counters[i] - start->counters[i];
 	}
 
 	// Look out for unsigned integer overflows
-	int overflowing = (accum->duration + delta.duration < accum->duration);
+	int overflowing = 0;
 	for (unsigned i = 0; i < NUM_ENERGY_COUNTERS; i++) {
-		overflowing = overflowing || (accum->counters[i] + delta.counters[i] < accum->counters[i]);
+		overflowing = overflowing || (em->counts.counters[i] + delta.counters[i] < em->counts.counters[i]);
 	}
 
 	if (overflowing) {
-		// If we would overflow, scale everything down proportionally.
-		// This effectively serves as a kind of slow rolling average as well.
-		printk("PMLab: scaling down event counts for pid %llu, as they grew too large.\n", (long long unsigned)pid);
-		const unsigned down_shift = 4;
-		accum->duration >>= down_shift;
-		for (unsigned i = 0; i < NUM_ENERGY_COUNTERS; i++) {
-			accum->counters[i] >>= down_shift;
-		}
+		// If we would overflow the counters, just reset the energy model.
+		// Since we have to reset the energy model anyhow every time the process
+		// is rescheduled to a different CPU type, this should not introduce additional problems.
+		printk("PMLab: resetting event counts for pid %llu, as they grew too large.\n", (long long unsigned)tsk->pid);
+		memset(&em->counts, 0, sizeof em->counts);
+		em->start_time = ktime_get_ns();
 	}
 
 	// Add to running sum
-	accum->duration += delta.duration;
 	for (unsigned i = 0; i < NUM_ENERGY_COUNTERS; i++) {
-		accum->counters[i] += delta.counters[i];
+		em->counts.counters[i] += delta.counters[i];
 	}
 }
 
 static u64
-evaluate_power_consumption(const struct energy_counts *ec, int core_type)
+evaluate_power_consumption(const struct energy_model *em)
 {
+	u64 duration_ns = ktime_get_ns() - em->start_time;
+	if (duration_ns == 0) {
+		duration_ns = 1;
+	}
+
 	// x86-64 can easily do 128-bit arithmatic.
 	// We use this extra precision here to avoid overflows
 	// from multiplications.
-	s64 energy[2] = { 0, 0 }; // in pJ
+	s64 energy_pJ[2] = { 0, 0 };
 	for (unsigned i = 0; i < NUM_ENERGY_COUNTERS; i++) {
-		u64 coeff = energy_model_coefficients[core_type][i];
-		s64 magnitude = (s64)ec->counters[i];
+		u64 coeff = energy_model_coefficients[em->core_type][i];
+		s64 magnitude = (s64)em->counts.counters[i];
 
 		// TODO implement squared contribution of some counters
 #if 0
-		if (energy_model_squared[core_type][i]) {
+		if (energy_model_squared[em->core_type][i]) {
 			s64 squared[2];
 			mul_s64_s128(squared, magnitude, magnitude);
 			// TODO Rescale from (pJ)^2 to p(J^2)?
@@ -167,11 +169,10 @@ evaluate_power_consumption(const struct energy_counts *ec, int core_type)
 		s64 contrib[2] = { 0, 0 };
 		mul_s64_s128(contrib, coeff, magnitude);
 
-		add_s128(energy, contrib);
+		add_s128(energy_pJ, contrib);
 	}
 
-	s64 power_mW = (ec->duration == 0) ? energy[0] :
-		div_s128_s64(energy, ec->duration); // mW = pJ / ns
+	s64 power_mW = div_s128_s64(energy_pJ, duration_ns); // mW = pJ / ns
 	// While individual contributions may be negative,
 	// the final estimate should not be.
 	return power_mW >= 0 ? power_mW : 0;
@@ -185,6 +186,7 @@ pmlab_reset_task_struct(struct task_struct *tsk)
 	// so we have to reset its contents here.
 	struct energy_model *em = &tsk->energy_model;
 	memset(em, 0, sizeof *em);
+	em->start_time = ktime_get_ns();
 	// Doesn't matter if this guess is wrong,
 	// since this will get updated after the first timeslice.
 	em->core_type = EFFICIENCY_CORE;
@@ -239,29 +241,32 @@ pmlab_install_performance_counters(void)
 }
 
 void
-pmlab_update_after_timeslice(struct task_struct *prev)
+pmlab_update_after_timeslice(struct task_struct *prev, struct task_struct *next)
 {
-	struct energy_counts *latest = &get_cpu_var(pmlab_previous_counts);
-	struct energy_counts end, start = *latest;
+	unsigned long cpu_flags;
+
+	// Sample event counters since the last reschedule.
+	struct energy_counts *previous = &get_cpu_var(pmlab_previous_counts);
+	struct energy_counts end, start = *previous;
 	gather_energy_counts(&end);
-	*latest = end;
+	*previous = end;
 	put_cpu_var(pmlab_previous_counts);
 
-	struct energy_model *em = &prev->energy_model;
-	unsigned long cpu_flags;
-	spin_lock_irqsave(&em->lock, cpu_flags);
+	// Update the energy model of the task that has just finished its timeslice.
+	spin_lock_irqsave(&prev->energy_model.lock, cpu_flags);
+	accumulate_energy_counts(prev, &start, &end);
+	spin_unlock_irqrestore(&prev->energy_model.lock, cpu_flags);
 
-	// If the task has been rescheduled to a different kind of core,
-	// throw out the data we have collected, since it is core-type specific.
+	// If the upcoming task was rescheduled from a different CPU type,
+	// throw out the data we have collected, since it is CPU-type specific.
 	int core_type = my_core_type();
-	if (em->core_type != core_type) {
-		memset(&em->counts, 0, sizeof em->counts);
-		em->core_type = core_type;
+	spin_lock_irqsave(&next->energy_model.lock, cpu_flags);
+	if (next->energy_model.core_type != core_type) {
+		memset(&next->energy_model.counts, 0, sizeof next->energy_model.counts);
+		next->energy_model.start_time = ktime_get_ns();
+		next->energy_model.core_type = core_type;
 	}
-
-	accumulate_energy_counts(&em->counts, &start, &end, prev->pid);
-
-	spin_unlock_irqrestore(&em->lock, cpu_flags);
+	spin_unlock_irqrestore(&next->energy_model.lock, cpu_flags);
 }
 
 u64
@@ -270,14 +275,8 @@ pmlab_power_consumption_of_task(struct task_struct *tsk)
 	struct energy_model *em = &tsk->energy_model;
 	unsigned long cpu_flags;
 	spin_lock_irqsave(&em->lock, cpu_flags);
-
-	struct energy_counts counts = em->counts;
-	int core_type = em->core_type;
-
+	u64 power_mW = evaluate_power_consumption(em);
 	spin_unlock_irqrestore(&em->lock, cpu_flags);
-
-	u64 power_mW = evaluate_power_consumption(&counts, core_type);
-
 	return power_mW;
 }
 

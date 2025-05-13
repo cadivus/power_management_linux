@@ -5282,7 +5282,7 @@ context_switch(struct rq *rq, struct task_struct *prev,
 	 */
 	arch_start_context_switch(prev);
 
-	pmlab_update_after_timeslice(prev);
+	pmlab_update_after_timeslice(prev, next);
 
 	/*
 	 * kernel -> kernel   lazy + transfer active

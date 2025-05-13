@@ -19,7 +19,7 @@ handle_child_exit(int signum)
 		if (fd < 0) exit(1);
 		char buf[100];
 		ssize_t got = read(fd, buf, sizeof buf);
-		write(STDOUT_FILENO, buf, got);
+		write(STDERR_FILENO, buf, got);
 		close(fd);
 		wait(NULL);
 		exit(0);

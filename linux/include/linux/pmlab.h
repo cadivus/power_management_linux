@@ -11,12 +11,12 @@ struct task_struct; // defined externally
 #define NUM_ENERGY_COUNTERS (1 + 4)
 
 struct energy_counts {
-	u64 duration;
 	u64 counters[NUM_ENERGY_COUNTERS];
 };
 
 struct energy_model {
 	spinlock_t lock; // protects the entire struct
+	u64 start_time;
 	struct energy_counts counts;
 	int core_type;
 };
@@ -39,7 +39,7 @@ void pmlab_install_performance_counters(void);
  *
  * This function is called from context_switch() in sched/core.c
  */
-void pmlab_update_after_timeslice(struct task_struct *prev);
+void pmlab_update_after_timeslice(struct task_struct *prev, struct task_struct *next);
 
 /* Returns the estimated power consumption of the given task in milliwatt.
  */
