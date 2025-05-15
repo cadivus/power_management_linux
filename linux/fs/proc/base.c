@@ -641,11 +641,20 @@ static int consumed_power_status(struct seq_file *m, struct pid_namespace *ns,
 		return 0;
 
 	const u64 consumed_power = pmlab_power_consumption_of_task(task);
+	// It *should* be safe to access the energy model here, as we have already locked the task
+	const struct energy_model *em = &task->energy_model;
+	u64 duration = ktime_get_ns() - em->start_time;
+	struct energy_counts counts = em->counts;
+	int core_type = em->core_type;
 
 	unlock_task_sighand(task, &flags);
 
-	seq_printf(m, "Consumed power: %llu", consumed_power);
-	seq_putc(m, '\n');
+	seq_printf(m, "Power: %llu\n", consumed_power);
+	seq_printf(m, "CoreType: %c\n", core_type == PERFORMANCE_CORE ? 'P' : 'E');
+	seq_printf(m, "Duration: %llu\n", duration);
+	for (int i = 0; i < NUM_ENERGY_COUNTERS; i++) {
+		seq_printf(m, "Counter%d: %llu\n", i, counts.counters[i]);
+	}
 
 	return 0;
 }

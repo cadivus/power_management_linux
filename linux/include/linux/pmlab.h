@@ -8,23 +8,20 @@
 
 struct task_struct; // defined externally
 
-#define MAX_ENERGY_SAMPLES 256 // sizeof(energy_model->samples) == 4096
+#define NUM_ENERGY_COUNTERS 5
 
-struct energy_sample {
-	u64 energy;
-	u64 duration;
+#define EFFICIENCY_CORE  0
+#define PERFORMANCE_CORE 1
+
+struct energy_counts {
+	u64 counters[NUM_ENERGY_COUNTERS];
 };
 
 struct energy_model {
 	spinlock_t lock; // protects the entire struct
-
-	u64 total_energy;
-	u64 total_duration;
-
-	/* ring buffer of samples */
-	struct energy_sample samples[MAX_ENERGY_SAMPLES];
-	int                  first_sample;
-	int                  num_samples;
+	u64 start_time;
+	struct energy_counts counts;
+	int core_type;
 };
 
  /* task_struct contents are copied on fork.
@@ -45,9 +42,9 @@ void pmlab_install_performance_counters(void);
  *
  * This function is called from context_switch() in sched/core.c
  */
-void pmlab_update_after_timeslice(struct task_struct *prev);
+void pmlab_update_after_timeslice(struct task_struct *prev, struct task_struct *next);
 
-/* Returns the estimated power consumption of the given task.
+/* Returns the estimated power consumption of the given task in milliwatt.
  */
 u64  pmlab_power_consumption_of_task(struct task_struct *tsk);
 
