@@ -13,11 +13,10 @@ handle_child_exit(int signum)
 {
 	(void)signum;
 	if (child >= 0) {
-		char path[100];
-		snprintf(path, sizeof path, "/proc/%d/consumed_power", (int)child);
-		int fd = open(path, O_RDONLY);
+		char buf[500];
+		snprintf(buf, sizeof buf, "/proc/%d/consumed_power", (int)child);
+		int fd = open(buf, O_RDONLY);
 		if (fd < 0) exit(1);
-		char buf[100];
 		ssize_t got = read(fd, buf, sizeof buf);
 		write(STDERR_FILENO, buf, got);
 		close(fd);

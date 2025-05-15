@@ -14,17 +14,23 @@
 // These aren't defined in the Linux headers, so we define them ourselves:
 #define MSR_ARCH_PERFMON_EVENTSEL2 0x188
 #define MSR_ARCH_PERFMON_EVENTSEL3 0x189
+#define MSR_ARCH_PERFMON_EVENTSEL4 0x18A
+#define MSR_ARCH_PERFMON_EVENTSEL5 0x18B
 #define MSR_ARCH_PERFMON_PERFCTR2 0xc3
 #define MSR_ARCH_PERFMON_PERFCTR3 0xc4
+#define MSR_ARCH_PERFMON_PERFCTR4 0xc5
+#define MSR_ARCH_PERFMON_PERFCTR5 0xc6
 #define IA32_PERF_GLOBAL_INUSE 0x392
 
 // Perfmon event numbers (low byte) with umasks (high byte).
 // Different CPU types may use different event numbers for the same event.
 // Perf cores are CORE type, efficiency cores are ATOM type.
+#define ATOM_instructions     0x00c0
 #define ATOM_L1_dcache_loads  0x81d0 // source: https://community.intel.com/t5/Software-Tuning-Performance/Understanding-L1-L2-L3-misses/m-p/1056573
 #define ATOM_L1_icache_loads  0x0380 // Not sure. We use ICACHE.ACCESSES here.
 #define ATOM_iTLB_load_misses 0x0481 // ITLB.MISS
 #define ATOM_bus_cycles       0x013c
+#define CORE_instructions     0x00c0
 #define CORE_dTLB_loads       0x81d0 // source: https://stackoverflow.com/questions/56172115/what-is-the-meaning-of-perf-events-dtlb-loads-and-dtlb-stores
 #define CORE_bus_cycles       0x013c
 #define CORE_mem_stores       0x02cd
@@ -43,7 +49,7 @@ const struct energy_model_def energy_model_defs[2] = {
 	// efficiency core model
 	[EFFICIENCY_CORE] = {
 		.terms = {
-			{ 0 /* fixed ctr */,     0,  37 },
+			{ ATOM_instructions,     0,  37 },
 			{ ATOM_L1_dcache_loads,  0,  321 },
 			{ ATOM_L1_icache_loads,  0,  178 },
 			{ ATOM_iTLB_load_misses, 0,  2910827 },
@@ -54,7 +60,7 @@ const struct energy_model_def energy_model_defs[2] = {
 	// performance core model
 	[PERFORMANCE_CORE] = {
 		.terms = {
-			{ 0 /* fixed ctr */,     0,  65 },
+			{ CORE_instructions,     0,  65 },
 			{ CORE_dTLB_loads,       0,  904 },
 			{ CORE_bus_cycles,       0,  15064 },
 			{ CORE_mem_stores,       1, -111 },
@@ -109,11 +115,11 @@ my_core_type(void)
 static void
 gather_energy_counts(struct energy_counts *ec)
 {
-	rdmsrl(MSR_ARCH_PERFMON_FIXED_CTR0, ec->counters[0]);
-	rdmsrl(MSR_ARCH_PERFMON_PERFCTR0,   ec->counters[1]);
-	rdmsrl(MSR_ARCH_PERFMON_PERFCTR1,   ec->counters[2]);
-	rdmsrl(MSR_ARCH_PERFMON_PERFCTR2,   ec->counters[3]);
-	rdmsrl(MSR_ARCH_PERFMON_PERFCTR3,   ec->counters[4]);
+	rdmsrl(MSR_ARCH_PERFMON_PERFCTR0,   ec->counters[0]);
+	rdmsrl(MSR_ARCH_PERFMON_PERFCTR1,   ec->counters[1]);
+	rdmsrl(MSR_ARCH_PERFMON_PERFCTR2,   ec->counters[2]);
+	rdmsrl(MSR_ARCH_PERFMON_PERFCTR3,   ec->counters[3]);
+	rdmsrl(MSR_ARCH_PERFMON_PERFCTR4,   ec->counters[4]);
 }
 
 static void
@@ -218,7 +224,7 @@ pmlab_reset_task_struct(struct task_struct *tsk)
 void
 pmlab_install_performance_counters(void)
 {
-	u64 proc_id = smp_processor_id();
+	int proc_id = smp_processor_id();
 
 	// Distinguish efficiency <-> performance cores
 	uint32_t eax = 0x1A;
@@ -234,36 +240,41 @@ pmlab_install_performance_counters(void)
 
 	int core_type = my_core_type();
 
-	printk("PMLab: Installing power performance counters on %c processor %llu.\n",
+	printk("PMLab: Installing power performance counters on %c processor %d.\n",
 		core_type == EFFICIENCY_CORE ? 'E' : 'P', proc_id);
 
 	// Enable event counting
 	u64 global_ctrl;
 	rdmsrl(MSR_CORE_PERF_GLOBAL_CTRL, global_ctrl);
-	global_ctrl |= 0xfull; // enable 4 programmable counters
-	global_ctrl |= 0x1ull << 32; // enable 1 fixed counter
+	global_ctrl |= 0x1full; // enable 5 programmable counters
 	wrmsrl(MSR_CORE_PERF_GLOBAL_CTRL, global_ctrl);
 
 	// Log if someone other than us is already using the perf counters
-	const u64 my_counters_mask = 0x000000010000000ful;
+	const u64 my_counters_mask = 0x000000000000001ful;
 	u64 others_counters_mask;
 	rdmsrl(IA32_PERF_GLOBAL_INUSE, others_counters_mask);
 	if (my_counters_mask & others_counters_mask) {
-		printk("PMLab: core %llu: clashing PMC counter usage: we need %llx, others use %llx.", proc_id, my_counters_mask, others_counters_mask);
+		printk("PMLab: core %d: clashing PMC counter usage: we need %llx, others use %llx.", proc_id, my_counters_mask, others_counters_mask);
 	}
 
+	// I couldn't disable the watchdog and perf entirely, so something in the Linux kernel
+	// continously overwrites our attempts at managing the fixed counters.
+	// This is why we only used programmable counters anymore.
+#if 0
 	// Enable the fixed event counter(s)
 	u64 fixed_ctr_ctrl;
 	rdmsrl(MSR_ARCH_PERFMON_FIXED_CTR_CTRL, fixed_ctr_ctrl);
 	fixed_ctr_ctrl &= ~INTEL_FIXED_BITS_MASK;
 	fixed_ctr_ctrl |= INTEL_FIXED_0_USER; // configure instructions-retired
 	wrmsrl(MSR_ARCH_PERFMON_FIXED_CTR_CTRL, fixed_ctr_ctrl);
+#endif
 
 	// Configure the programmable event counters
-	wrmsrl(MSR_ARCH_PERFMON_EVENTSEL0, energy_model_defs[core_type].terms[1].event | ARCH_PERFMON_EVENTSEL_USR | ARCH_PERFMON_EVENTSEL_ENABLE);
-	wrmsrl(MSR_ARCH_PERFMON_EVENTSEL1, energy_model_defs[core_type].terms[2].event | ARCH_PERFMON_EVENTSEL_USR | ARCH_PERFMON_EVENTSEL_ENABLE);
-	wrmsrl(MSR_ARCH_PERFMON_EVENTSEL2, energy_model_defs[core_type].terms[3].event | ARCH_PERFMON_EVENTSEL_USR | ARCH_PERFMON_EVENTSEL_ENABLE);
-	wrmsrl(MSR_ARCH_PERFMON_EVENTSEL3, energy_model_defs[core_type].terms[4].event | ARCH_PERFMON_EVENTSEL_USR | ARCH_PERFMON_EVENTSEL_ENABLE);
+	wrmsrl(MSR_ARCH_PERFMON_EVENTSEL0, energy_model_defs[core_type].terms[0].event | ARCH_PERFMON_EVENTSEL_USR | ARCH_PERFMON_EVENTSEL_ENABLE);
+	wrmsrl(MSR_ARCH_PERFMON_EVENTSEL1, energy_model_defs[core_type].terms[1].event | ARCH_PERFMON_EVENTSEL_USR | ARCH_PERFMON_EVENTSEL_ENABLE);
+	wrmsrl(MSR_ARCH_PERFMON_EVENTSEL2, energy_model_defs[core_type].terms[2].event | ARCH_PERFMON_EVENTSEL_USR | ARCH_PERFMON_EVENTSEL_ENABLE);
+	wrmsrl(MSR_ARCH_PERFMON_EVENTSEL3, energy_model_defs[core_type].terms[3].event | ARCH_PERFMON_EVENTSEL_USR | ARCH_PERFMON_EVENTSEL_ENABLE);
+	wrmsrl(MSR_ARCH_PERFMON_EVENTSEL4, energy_model_defs[core_type].terms[4].event | ARCH_PERFMON_EVENTSEL_USR | ARCH_PERFMON_EVENTSEL_ENABLE);
 
 	// Gather initial counts on this CPU core
 	struct energy_counts *latest = &get_cpu_var(pmlab_previous_counts);

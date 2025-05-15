@@ -8,7 +8,7 @@
 
 struct task_struct; // defined externally
 
-#define NUM_ENERGY_COUNTERS (1 + 4)
+#define NUM_ENERGY_COUNTERS 5
 
 #define EFFICIENCY_CORE  0
 #define PERFORMANCE_CORE 1
