@@ -237,9 +237,12 @@ pmlab_install_performance_counters(void)
 	printk("PMLab: Installing power performance counters on %c processor %llu.\n",
 		core_type == EFFICIENCY_CORE ? 'E' : 'P', proc_id);
 
-	// Simply enable all fixed and programmable counters
-	// Previously, this access got trapped as illegal on E cores? That error does not happen anymore.
-	wrmsrl(MSR_CORE_PERF_GLOBAL_CTRL, 0x70000003ful);
+	// Enable event counting
+	u64 global_ctrl;
+	rdmsrl(MSR_CORE_PERF_GLOBAL_CTRL, global_ctrl);
+	global_ctrl |= 0xfull; // enable 4 programmable counters
+	global_ctrl |= 0x1ull << 32; // enable 1 fixed counter
+	wrmsrl(MSR_CORE_PERF_GLOBAL_CTRL, global_ctrl);
 
 	// Log if someone other than us is already using the perf counters
 	const u64 my_counters_mask = 0x000000010000000ful;
@@ -249,8 +252,14 @@ pmlab_install_performance_counters(void)
 		printk("PMLab: core %llu: clashing PMC counter usage: we need %llx, others use %llx.", proc_id, my_counters_mask, others_counters_mask);
 	}
 
-	// Configure the individual event counters
-	wrmsrl(MSR_ARCH_PERFMON_FIXED_CTR_CTRL, INTEL_FIXED_0_USER); // instructions-retired
+	// Enable the fixed event counter(s)
+	u64 fixed_ctr_ctrl;
+	rdmsrl(MSR_ARCH_PERFMON_FIXED_CTR_CTRL, fixed_ctr_ctrl);
+	fixed_ctr_ctrl &= ~INTEL_FIXED_BITS_MASK;
+	fixed_ctr_ctrl |= INTEL_FIXED_0_USER; // configure instructions-retired
+	wrmsrl(MSR_ARCH_PERFMON_FIXED_CTR_CTRL, fixed_ctr_ctrl);
+
+	// Configure the programmable event counters
 	wrmsrl(MSR_ARCH_PERFMON_EVENTSEL0, energy_model_defs[core_type].terms[1].event | ARCH_PERFMON_EVENTSEL_USR | ARCH_PERFMON_EVENTSEL_ENABLE);
 	wrmsrl(MSR_ARCH_PERFMON_EVENTSEL1, energy_model_defs[core_type].terms[2].event | ARCH_PERFMON_EVENTSEL_USR | ARCH_PERFMON_EVENTSEL_ENABLE);
 	wrmsrl(MSR_ARCH_PERFMON_EVENTSEL2, energy_model_defs[core_type].terms[3].event | ARCH_PERFMON_EVENTSEL_USR | ARCH_PERFMON_EVENTSEL_ENABLE);
