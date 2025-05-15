@@ -10,6 +10,9 @@ struct task_struct; // defined externally
 
 #define NUM_ENERGY_COUNTERS (1 + 4)
 
+#define EFFICIENCY_CORE  0
+#define PERFORMANCE_CORE 1
+
 struct energy_counts {
 	u64 counters[NUM_ENERGY_COUNTERS];
 };

@@ -30,9 +30,6 @@
 #define CORE_mem_stores       0x02cd
 #define CORE_ref_cycles       0x013c
 
-#define EFFICIENCY_CORE  0
-#define PERFORMANCE_CORE 1
-
 struct energy_model_def {
 	struct energy_term {
 		unsigned event;  // Event ID with UMask
