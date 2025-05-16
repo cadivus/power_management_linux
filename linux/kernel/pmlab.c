@@ -349,6 +349,8 @@ static int init_subsystem(void)
 		pr_err("pmlab: Failed to register kfunctions");
 		return ret;
 	}
+
+	return 0;
 }
 
 late_initcall(init_subsystem);
