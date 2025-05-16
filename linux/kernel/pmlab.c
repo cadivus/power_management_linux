@@ -337,20 +337,21 @@ static const struct btf_kfunc_id_set bpf_pmlab_kfunc_set = {
         .set   = &bpf_pmlab_set,
 };
 
-static int init_module(void)
+static int init_subsystem(void)
 {
-        int ret;
+	int ret;
 
-        if (
-               (ret = register_btf_kfunc_id_set(BPF_PROG_TYPE_TRACING, &bpf_pmlab_kfunc_set))
-               (ret = register_btf_kfunc_id_set(BPF_PROG_TYPE_SYSCALL, &bpf_pmlab_kfunc_set))
-               (ret = register_btf_kfunc_id_set(BPF_PROG_TYPE_STRUCT_OPS, &bpf_pmlab_kfunc_set))
-        ) {
-                pr_err("pmlab: Failed to register kfunctions");
-                return ret;
-        }
+	if (
+		(ret = register_btf_kfunc_id_set(BPF_PROG_TYPE_TRACING, &bpf_pmlab_kfunc_set))
+		|| (ret = register_btf_kfunc_id_set(BPF_PROG_TYPE_SYSCALL, &bpf_pmlab_kfunc_set))
+		|| (ret = register_btf_kfunc_id_set(BPF_PROG_TYPE_STRUCT_OPS, &bpf_pmlab_kfunc_set))
+	) {
+		pr_err("pmlab: Failed to register kfunctions");
+		return ret;
+	}
 }
 
+late_initcall(init_subsystem);
 
 #if 0
 #define MEM_INST_RETIRED_ALL_LOADS   0x81d0 // maps to dTLB-loads
