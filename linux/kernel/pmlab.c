@@ -9,7 +9,11 @@
 #include <linux/timekeeping.h>
 #include <asm/msr.h>
 #include <asm/perf_event.h>
-//#include <linux/pmlab.h> // Included in linux/sched.h
+
+// For eBPF interface
+#include <linux/bpf_verifier.h>
+#include <linux/btf.h>
+#include <linux/bpf.h>
 
 // These aren't defined in the Linux headers, so we define them ourselves:
 #define MSR_ARCH_PERFMON_EVENTSEL2 0x188
@@ -311,7 +315,7 @@ pmlab_update_after_timeslice(struct task_struct *prev, struct task_struct *next)
 	spin_unlock_irqrestore(&next->energy_model.lock, cpu_flags);
 }
 
-u64
+__bpf_kfunc u64
 pmlab_power_consumption_of_task(struct task_struct *tsk)
 {
 	struct energy_model *em = &tsk->energy_model;
@@ -321,6 +325,32 @@ pmlab_power_consumption_of_task(struct task_struct *tsk)
 	spin_unlock_irqrestore(&em->lock, cpu_flags);
 	return power_mW;
 }
+
+
+// Expose the pmlab_power_consumption_of_task function to ebpf programs
+BTF_KFUNCS_START(bpf_pmlab_set)
+BTF_ID_FLAGS(func, pmlab_power_consumption_of_task)
+BTF_KFUNCS_END(bpf_pmlab_set)
+
+static const struct btf_kfunc_id_set bpf_pmlab_kfunc_set = {
+        .owner = THIS_MODULE,
+        .set   = &bpf_pmlab_set,
+};
+
+static int init_module(void)
+{
+        int ret;
+
+        if (
+               (ret = register_btf_kfunc_id_set(BPF_PROG_TYPE_TRACING, &bpf_pmlab_kfunc_set))
+               (ret = register_btf_kfunc_id_set(BPF_PROG_TYPE_SYSCALL, &bpf_pmlab_kfunc_set))
+               (ret = register_btf_kfunc_id_set(BPF_PROG_TYPE_STRUCT_OPS, &bpf_pmlab_kfunc_set))
+        ) {
+                pr_err("pmlab: Failed to register kfunctions");
+                return ret;
+        }
+}
+
 
 #if 0
 #define MEM_INST_RETIRED_ALL_LOADS   0x81d0 // maps to dTLB-loads

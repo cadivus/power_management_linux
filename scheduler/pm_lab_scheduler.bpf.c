@@ -52,13 +52,8 @@ struct {
     __type(value, u64);
 } global_sum_map SEC(".maps");
 
-int wattage_limit() {
+u64 wattage_limit() {
     return 80;
-}
-
-// Mock function
-u64 pmlab_power_consumption_of_task(struct task_struct *p) {
-    return 20;
 }
 
 // Scheduler initialization: create DSQs.
@@ -74,10 +69,10 @@ s32 BPF_STRUCT_OPS_SLEEPABLE(sched_init) {
 // Enqueue a task into the DSQ with a computed time slice.
 int BPF_STRUCT_OPS(sched_enqueue, struct task_struct *p, u64 enq_flags) {
     if (p->mm) {
-        u64 slice = scx_bpf_dsq_nr_queued(SHARED_DSQ_ID);
+        u64 slice = 5000000u / scx_bpf_dsq_nr_queued(SHARED_DSQ_ID);
         scx_bpf_dsq_insert(p, SHARED_DSQ_ID, slice, enq_flags);
     } else {
-        u64 slice = scx_bpf_dsq_nr_queued(SHARED_DSQ_KERNEL_ID);
+        u64 slice = 5000000u / scx_bpf_dsq_nr_queued(SHARED_DSQ_KERNEL_ID);
         scx_bpf_dsq_insert(p, SHARED_DSQ_KERNEL_ID, slice, enq_flags);
     }
 
@@ -87,14 +82,14 @@ int BPF_STRUCT_OPS(sched_enqueue, struct task_struct *p, u64 enq_flags) {
 // Dispatch a task from the DSQ to a CPU.
 int BPF_STRUCT_OPS(sched_dispatch, s32 cpu, struct task_struct *prev) {
     int key = 0;
-    u64 test = 16;
+    u64 cpu_cutoff_index = 0;
     u64 *value = bpf_map_lookup_elem(&global_sum_map, &key);
     if (value) {
-        bpf_printk("global sum = %llu\n", *value);
-        test = *value;
+        //bpf_printk("global sum = %llu\n", *value);
+        cpu_cutoff_index = *value;
     }
 
-    if (cpu <= test) {
+    if (cpu <= cpu_cutoff_index) {
         scx_bpf_dsq_move_to_local(SHARED_DSQ_ID);
         scx_bpf_dsq_move_to_local(SHARED_DSQ_KERNEL_ID);
     } else {
@@ -119,10 +114,14 @@ int BPF_STRUCT_OPS(sched_running, struct task_struct *p) {
     if (!lock)
         return 0;
 
+
+    // Has to be called outside the lock
+    u64 consumer_power = pmlab_power_consumption_of_task(p);
+
     // Acquire lock and update the current CPU's entry
     bpf_spin_lock(&lock->semaphore);
     my_entry->pid = p->pid;
-    my_entry->power = pmlab_power_consumption_of_task(p);
+    my_entry->power = consumed_power;
     bpf_spin_unlock(&lock->semaphore);
 
     // Snapshot: Copy all entries out of the map outside the lock
