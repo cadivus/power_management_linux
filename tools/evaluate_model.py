@@ -32,19 +32,21 @@ class EnergyModel:
         return energy
 
 models = {
-    "E": EnergyModel(3.1605309472304457, [
-        LinearTerm(3.6757760305158816e-11),
-        LinearTerm(3.2089460350838357e-10),
-        LinearTerm(1.7825941074649793e-10),
-        LinearTerm(2.910827313533828e-06),
-        LinearTerm(1.0259849984396058e-09),
+    "E": EnergyModel(0, [
+        LinearTerm(3.048792273507325e-10),
+        LinearTerm(4.7155159305481095e-11),
+        SquaredTerm(-1.6217383792175577e-18),
+        LinearTerm(-1.8876339894242007e-10),
+        LinearTerm(5.001291010517235e-09),
+        LinearTerm(2.666471030028046e-10),
     ]),
-    "P": EnergyModel(-10.925121778307883, [
-        LinearTerm(6.494945101276136e-11),
-        LinearTerm(9.039336093376469e-10),
-        LinearTerm(1.5063793208625808e-08),
-        SquaredTerm(-1.1126473785568833e-19),
-        SquaredTerm(-2.785074808986619e-18),
+    "P": EnergyModel(0, [
+        LinearTerm(7.886563445880864e-10),
+        LinearTerm(3.322996314075699e-10),
+        LinearTerm(1.1650503993504607e-09),
+        LinearTerm(3.0849775100557654e-11),
+        LinearTerm(6.659123282528457e-10),
+        LinearTerm(1.0850461620013055e-10),
     ]),
 }
 

@@ -29,22 +29,28 @@
 // Perfmon event numbers (low byte) with umasks (high byte).
 // Different CPU types may use different event numbers for the same event.
 // Perf cores are CORE type, efficiency cores are ATOM type.
-#define ATOM_instructions     0x00c0
-#define ATOM_L1_dcache_loads  0x81d0 // source: https://community.intel.com/t5/Software-Tuning-Performance/Understanding-L1-L2-L3-misses/m-p/1056573
-#define ATOM_L1_icache_loads  0x0380 // Not sure. We use ICACHE.ACCESSES here.
-#define ATOM_iTLB_load_misses 0x0481 // ITLB.MISS
-#define ATOM_bus_cycles       0x013c
-#define CORE_instructions     0x00c0
-#define CORE_dTLB_loads       0x81d0 // source: https://stackoverflow.com/questions/56172115/what-is-the-meaning-of-perf-events-dtlb-loads-and-dtlb-stores
-#define CORE_bus_cycles       0x013c
-#define CORE_mem_stores       0x02cd
-#define CORE_ref_cycles       0x013c
+#define ATOM_instructions        0x00c0
+#define ATOM_L1_dcache_loads     0x81d0
+#define ATOM_L1_icache_loads     0x0380
+#define ATOM_iTLB_load_misses    0x0481
+#define ATOM_bus_cycles          0x013c
+#define ATOM_cpu_cycles          0x003c
+#define ATOM_ref_cycles          0x013c
+#define ATOM_topdown_retiring    0x00c2
+#define CORE_instructions        0x00c0
+#define CORE_bus_cycles          0x013c
+#define CORE_mem_stores          0x02cd
+#define CORE_ref_cycles          0x013c
+#define CORE_L1_dcache_loads     0x81d0
+#define CORE_branch_instructions 0x00c4
+#define CORE_cpu_cycles          0x003c
+#define CORE_slots               0x0400
 
 struct energy_model_def {
 	struct energy_term {
 		unsigned event;  // Event ID with UMask
 		int is_squared;  // Either linear (0) or squared (1) contribution.
-		s64 coefficient; // Regression coefficient, scaled up by 10^12 for linear terms, and by 20^(12+9) for squared terms.
+		s64 coefficient; // Regression coefficient, scaled up by 10^12 for linear terms, and by 10^(12+9) for squared terms.
 	} terms[NUM_ENERGY_COUNTERS];
 	s64 intercept; // in mW
 };
@@ -53,24 +59,26 @@ const struct energy_model_def energy_model_defs[2] = {
 	// efficiency core model
 	[EFFICIENCY_CORE] = {
 		.terms = {
-			{ ATOM_instructions,     0,  37 },
-			{ ATOM_L1_dcache_loads,  0,  321 },
-			{ ATOM_L1_icache_loads,  0,  178 },
-			{ ATOM_iTLB_load_misses, 0,  2910827 },
-			{ ATOM_bus_cycles,       0,  1026 },
+			{ ATOM_L1_dcache_loads,     0, 305 },
+			{ ATOM_L1_icache_loads,     0, 47 },
+			{ ATOM_cpu_cycles,          1, -1622 },
+			{ ATOM_instructions,        0, -189 },
+			{ ATOM_ref_cycles,          0, 5001 },
+			{ ATOM_topdown_retiring,    0, 267 },
 		},
-		.intercept = 3161,
+		.intercept = 0,
 	},
 	// performance core model
 	[PERFORMANCE_CORE] = {
 		.terms = {
-			{ CORE_instructions,     0,  65 },
-			{ CORE_dTLB_loads,       0,  904 },
-			{ CORE_bus_cycles,       0,  15064 },
-			{ CORE_mem_stores,       1, -111 },
-			{ CORE_ref_cycles,       1, -2785 },
+			{ CORE_L1_dcache_loads,     0, 789 },
+			{ CORE_branch_instructions, 0, 332 },
+			{ CORE_cpu_cycles,          0, 1165 },
+			{ CORE_instructions,        0, 31 },
+			{ CORE_ref_cycles,          0, 666 },
+			{ CORE_slots,               0, 109 }
 		},
-		.intercept = -10925,
+		.intercept = 0,
 	},
 };
 
@@ -354,14 +362,3 @@ static int init_subsystem(void)
 }
 
 late_initcall(init_subsystem);
-
-#if 0
-#define MEM_INST_RETIRED_ALL_LOADS   0x81d0 // maps to dTLB-loads
-#define ICACHE_ACCESSES              0x0380
-#define TOPDOWN_RETIRING_ALL         0x00c2
-#define UNC_M_CLOCKTICKS             0x0001
-#define LONGEST_LAT_CACHE_MISS       0x412e // L3 cache misses
-#define BR_MISP_RETIRED_ALL_BRANCHES 0x00c5 // branch misses
-#define CSTATE_CORE_C6_RESIDENCY     0x0002 // FIXME this doesn't seem right according to perfmon-events.intel.com
-#define CACHE_MISSES                 0x412E // Architectural counter
-#endif
