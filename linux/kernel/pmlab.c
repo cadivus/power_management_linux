@@ -132,6 +132,7 @@ gather_energy_counts(struct energy_counts *ec)
 	rdmsrl(MSR_ARCH_PERFMON_PERFCTR2,   ec->counters[2]);
 	rdmsrl(MSR_ARCH_PERFMON_PERFCTR3,   ec->counters[3]);
 	rdmsrl(MSR_ARCH_PERFMON_PERFCTR4,   ec->counters[4]);
+	rdmsrl(MSR_ARCH_PERFMON_PERFCTR5,   ec->counters[5]);
 }
 
 static void
@@ -287,6 +288,7 @@ pmlab_install_performance_counters(void)
 	wrmsrl(MSR_ARCH_PERFMON_EVENTSEL2, energy_model_defs[core_type].terms[2].event | ARCH_PERFMON_EVENTSEL_USR | ARCH_PERFMON_EVENTSEL_OS | ARCH_PERFMON_EVENTSEL_ENABLE);
 	wrmsrl(MSR_ARCH_PERFMON_EVENTSEL3, energy_model_defs[core_type].terms[3].event | ARCH_PERFMON_EVENTSEL_USR | ARCH_PERFMON_EVENTSEL_OS | ARCH_PERFMON_EVENTSEL_ENABLE);
 	wrmsrl(MSR_ARCH_PERFMON_EVENTSEL4, energy_model_defs[core_type].terms[4].event | ARCH_PERFMON_EVENTSEL_USR | ARCH_PERFMON_EVENTSEL_OS | ARCH_PERFMON_EVENTSEL_ENABLE);
+	wrmsrl(MSR_ARCH_PERFMON_EVENTSEL5, energy_model_defs[core_type].terms[5].event | ARCH_PERFMON_EVENTSEL_USR | ARCH_PERFMON_EVENTSEL_OS | ARCH_PERFMON_EVENTSEL_ENABLE);
 
 	// Gather initial counts on this CPU core
 	struct energy_counts *latest = &get_cpu_var(pmlab_previous_counts);
