@@ -44,7 +44,7 @@
 #define CORE_L1_dcache_loads     0x81d0
 #define CORE_branch_instructions 0x00c4
 #define CORE_cpu_cycles          0x003c
-#define CORE_slots               0x0400
+#define CORE_slots               0x01a4
 
 struct energy_model_def {
 	struct energy_term {
@@ -259,11 +259,11 @@ pmlab_install_performance_counters(void)
 	// Enable event counting
 	u64 global_ctrl;
 	rdmsrl(MSR_CORE_PERF_GLOBAL_CTRL, global_ctrl);
-	global_ctrl |= 0x1full; // enable 5 programmable counters
+	global_ctrl |= 0x3full; // enable 6 programmable counters
 	wrmsrl(MSR_CORE_PERF_GLOBAL_CTRL, global_ctrl);
 
 	// Log if someone other than us is already using the perf counters
-	const u64 my_counters_mask = 0x000000000000001ful;
+	const u64 my_counters_mask = 0x000000000000003ful;
 	u64 others_counters_mask;
 	rdmsrl(IA32_PERF_GLOBAL_INUSE, others_counters_mask);
 	if (my_counters_mask & others_counters_mask) {

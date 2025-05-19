@@ -59,7 +59,7 @@ def read_proc_file(file):
 
 proc_data = read_proc_file(sys.stdin)
 
-counter_names = ["Counter0", "Counter1", "Counter2", "Counter3", "Counter4"]
+counter_names = ["Counter0", "Counter1", "Counter2", "Counter3", "Counter4", "Counter5"]
 counters = (float(proc_data[name]) for name in counter_names)
 
 duration = float(proc_data["Duration"])
