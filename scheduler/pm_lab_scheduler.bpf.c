@@ -39,7 +39,7 @@ struct cpu_power_entry {
 
 struct {
     __uint(type, BPF_MAP_TYPE_ARRAY);
-    __uint(max_entries, 16);
+    __uint(max_entries, 20);
     __type(key, int);
     __type(value, struct cpu_power_entry);
 } power_entries_map SEC(".maps");
@@ -50,10 +50,10 @@ struct {
     __uint(max_entries, 1);
     __type(key, int);
     __type(value, u64);
-} global_sum_map SEC(".maps");
+} cpu_cutoff_index_map SEC(".maps");
 
 u64 wattage_limit() {
-    return 80;
+    return 40000; // 40Watts
 }
 
 // Scheduler initialization: create DSQs.
@@ -69,23 +69,22 @@ s32 BPF_STRUCT_OPS_SLEEPABLE(sched_init) {
 // Enqueue a task into the DSQ with a computed time slice.
 int BPF_STRUCT_OPS(sched_enqueue, struct task_struct *p, u64 enq_flags) {
     if (p->mm) {
-        u64 slice = 5000000u / scx_bpf_dsq_nr_queued(SHARED_DSQ_ID);
+        u64 slice = 5000000u;
         scx_bpf_dsq_insert(p, SHARED_DSQ_ID, slice, enq_flags);
     } else {
-        u64 slice = 5000000u / scx_bpf_dsq_nr_queued(SHARED_DSQ_KERNEL_ID);
+        u64 slice = 5000000u;
         scx_bpf_dsq_insert(p, SHARED_DSQ_KERNEL_ID, slice, enq_flags);
     }
 
     return 0;
 }
 
-// Dispatch a task from the DSQ to a CPU.
+// Dispatch a task from the DSQ to a CPU, only consume from userland DSQ when cpu index is below cutoff index.
 int BPF_STRUCT_OPS(sched_dispatch, s32 cpu, struct task_struct *prev) {
     int key = 0;
     u64 cpu_cutoff_index = 0;
-    u64 *value = bpf_map_lookup_elem(&global_sum_map, &key);
+    u64 *value = bpf_map_lookup_elem(&cpu_cutoff_index_map, &key);
     if (value) {
-        //bpf_printk("global sum = %llu\n", *value);
         cpu_cutoff_index = *value;
     }
 
@@ -98,7 +97,7 @@ int BPF_STRUCT_OPS(sched_dispatch, s32 cpu, struct task_struct *prev) {
     return 0;
 }
 
-// Running hook: update the current CPU's entry under a spin lock, then print a snapshot.
+// Running hook, this is called just before the task will run on the cpu, here, we update the cutoff_index.
 int BPF_STRUCT_OPS(sched_running, struct task_struct *p) {
     int cpu = bpf_get_smp_processor_id();
 
@@ -125,9 +124,9 @@ int BPF_STRUCT_OPS(sched_running, struct task_struct *p) {
     bpf_spin_unlock(&lock->semaphore);
 
     // Snapshot: Copy all entries out of the map outside the lock
-    struct cpu_power_entry snapshot[16];
+    struct cpu_power_entry snapshot[20];
     #pragma unroll
-    for (int i = 0; i < 16; i++) {
+    for (int i = 0; i < 20; i++) {
         int idx = i;
         struct cpu_power_entry *entry = bpf_map_lookup_elem(&power_entries_map, &idx);
         if (entry) {
@@ -138,30 +137,38 @@ int BPF_STRUCT_OPS(sched_running, struct task_struct *p) {
         }
     }
 
-    /* --- Print the snapshot --- */
+    /*
     #pragma unroll
     for (int i = 0; i < 16; i++) {
-        //bpf_printk("Entry[%d]: pid = %d, watts = %llu\n",
-        //           i, snapshot[i].pid, snapshot[i].power);
+        bpf_printk("Entry[%d]: pid = %d, watts = %llu\n",
+                   i, snapshot[i].pid, snapshot[i].power);
     }
+    */
 
-    /* --- Calculate and update the global shared integer --- */
+    // Calculate and update the global shared integer
+    bpf_spin_lock(&lock->semaphore);
+    u64 wattage_limit = wattage_limit();
     u64 global_sum = 0;
     u64 max_processor_id = 16 - 1;
     #pragma unroll
     for (int i = 0; i < 16; i++) {
         global_sum += snapshot[i].power;
 
-        if (global_sum > wattage_limit()) {
+        if (global_sum > wattage_limit) {
             max_processor_id = i;
             break;
         }
     }
+    bpf_spin_unlock(&lock->semaphore);
+
     int sum_key = 0;
-    bpf_map_update_elem(&global_sum_map, &sum_key, &max_processor_id, BPF_ANY);
-    //bpf_printk("global max processor id = %llu\n", max_processor_id);
-    //bpf_printk("running on %d\n", cpu);
-    //bpf_printk("\n\n\n");
+    bpf_map_update_elem(&cpu_cutoff_index_map, &sum_key, &max_processor_id, BPF_ANY);
+
+    /*
+    bpf_printk("global max processor id = %llu\n", max_processor_id);
+    bpf_printk("running on %d\n", cpu);
+    bpf_printk("\n\n\n");
+    */
 
     return 0;
 }
